@@ -14,7 +14,7 @@ using namespace seqan;
 
 
 // Setting the index
-typedef FMIndexConfig<void, uint64_t, 2, 1> TFastConfig;
+typedef FastFMIndexConfig<void, uint32_t, 2, 1> TFastConfig;
 
 using read_pos_t = uint16_t;
 using read_id_t = unsigned;
@@ -206,10 +206,12 @@ void approxCount(const std::string& filename, const int k, const int& nbThread, 
             DnaString readSequence = seqs[r];
             
             // going through the read using K size window
-            for( int i = 0; i < length(readSequence) - k + 1; i+= bloc_size ){
+            //for( int i = 0; i < length(readSequence) - k + 1; i+= bloc_size ){
+            for( int i = 0; i < 1; i++ ){
                 Infix<DnaString>::Type inf = infix(readSequence, i, i+k);
                 DnaString km = DnaString(inf);
                 std::string strKm = toCString(CharString(km));
+                print(strKm);
                 if(not processedKmer[strKm]){
                     processedKmer[strKm] = true;
                     if(not haveLowComplexity(km,lc)){
