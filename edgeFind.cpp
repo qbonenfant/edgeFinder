@@ -41,7 +41,7 @@ inline  bool haveLowComplexity(DnaString sequence, double threshold){
     std::unordered_map<std::string,int> counter;
     std::string seq = toCString(CharString(sequence));
     // reading using sliding window of 2
-    for(int i =0; i < l-1; i++){
+    for(int i =0; i < l-2; i++){
         std::string c = seq.substr(i,2);
         if(counter.count(c) !=0 ){
             counter[c]+=1;    
@@ -198,7 +198,7 @@ void approxCount(const std::string& filename, const std::string & indexFile, con
         //for(int r=0; r<1; r++)
         {   
             if(v>=1 and (r+1) %(nbRead/100) == 0){
-                print(float(r+1)/nbRead*100);
+                print(round(float(r+1)/nbRead*100));
 
             }
 
