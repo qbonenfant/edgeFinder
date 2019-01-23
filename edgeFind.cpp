@@ -14,13 +14,13 @@ using namespace seqan;
 
 
 // Setting the index
-typedef FastFMIndexConfig<void, uint32_t, 2, 1> TFastConfig;
+typedef FastFMIndexConfig<void, size_t, 2, 0> TFastConfig;
 
 using read_pos_t = uint16_t;
 using read_id_t = unsigned;
 using pos_vector_t = std::vector<read_pos_t>;
 using read2pos_map_t = std::map<int,std::vector<read_pos_t> >;
-using index_t = Index<DnaString, BidirectionalIndex<FMIndex<TFastConfig> > >;
+using index_t = Index<DnaString, BidirectionalIndex<FMIndex<void,TFastConfig> > >;
 
 
 const auto boot_time = std::chrono::steady_clock::now();
@@ -107,10 +107,10 @@ void printReadNames(int currentReadId, read2pos_map_t readIdMap , StringSet<Char
 
 
 // Search and count a kmer list in a fasta file, at at most a levenstein distance of 2.
-void approxCount(const std::string& filename, const int k, const int& nbThread, std::ofstream &outputFile, int v, int bloc_size, int treshold, bool rc, double lc, bool sampling, int ob){
+void approxCount(const std::string& filename, const std::string & indexFile, const int k, const int& nbThread, std::ofstream &outputFile, int v, int bloc_size, int treshold, bool rc, double lc, bool sampling, int ob){
     
     if(v>=1)
-        print("PARSING FASTA FILE");
+        print("PARSING FILE");
 
     // Parsing input fasta file
     StringSet<CharString> ids;
@@ -134,11 +134,18 @@ void approxCount(const std::string& filename, const int k, const int& nbThread, 
     // Constants (should be in upper case)
     const int nbRead  = length(ids);     // Number of reads in the file
 
-    
+    index_t index;
+
     // INDEX CREATION ----------
     if(v>=1)
         print("CREATING INDEX");
-        index_t index(allReads);
+        if(open(index,indexFile.c_str())){
+            print("LOADED FROM INDEX FILE");
+        }
+        else{
+            print("NO INDEX FILE, CREATING FROM SCRATCH...");
+            index_t index(allReads);
+        }
     if(v>=1)
         print("DONE");
     // -------------------------
@@ -148,127 +155,150 @@ void approxCount(const std::string& filename, const int k, const int& nbThread, 
     if(v>=1)
         print("STARTING RESSEARCH");
     std::set<read_id_t> stopSearch;
-
-    // storing results
-    std::array<read2pos_map_t, 2> results;
-    int direction = 0 ;
-    read2pos_map_t keptId;
-    std::unordered_map<std::string, bool> processedKmer;
-    StringSet<DnaString> kmSet;
-
-    // Max number of errors
-    const uint8_t NB_ERR = 2;
-
-    auto delegateParallel = [&](auto & iter, const DnaString & needle, int errors)// __attribute__((noinline))
+    int searchCount = 0;
+    #pragma omp parallel  firstprivate(index) shared(ids, seqs, treshold, rc, stopSearch, lc, sampling, searchCount)
     {
+        // storing results
+        std::array<read2pos_map_t, 2> results;
+        int direction = 0 ;
+        read2pos_map_t keptId;
+        std::unordered_map<std::string, bool> processedKmer;
+        StringSet<DnaString> kmSet;
+
+        // Max number of errors
+        const uint8_t NB_ERR = 1;
+
+        auto delegateParallel = [&](auto & iter, const DnaString & needle, int errors)// __attribute__((noinline))
+        {
+            
+            for (auto occ : getOccurrences(iter)){
+                
+                // Identifying read Id and position on read    
+                // and esting if the occurence is on one read only
+                // (not between two reads)
+                int readId= dichoFind(occ,lenReads);
+                int l = lenReads[readId+1] - lenReads[readId];
+                read_pos_t readPos =  occ - lenReads[readId];
+                                
+                if( readPos + k < l )
+                {   
+                    #pragma omp critical
+                    if(std::find(results[direction][readId].begin(), results[direction][readId].end(), readPos/ob ) == results[direction][readId].end() ){
+                        results[direction][readId].push_back(readPos/ob);
+                    }
+                }
+            }
+        };
+
+        bool not_in;
+        // going through the read list
         
-        for (auto occ : getOccurrences(iter)){
-            
-            // Identifying read Id and position on read    
-            // and esting if the occurence is on one read only
-            // (not between two reads)
-            int readId= dichoFind(occ,lenReads);
-            int l = lenReads[readId+1] - lenReads[readId];
-            read_pos_t readPos =  occ - lenReads[readId];
-                            
-            if( readPos + k < l )
-            {   
-                #pragma omp critical
-                if(std::find(results[direction][readId].begin(), results[direction][readId].end(), readPos/ob ) == results[direction][readId].end() ){
-                    results[direction][readId].push_back(readPos/ob);
-                }
-            }
-        }
-    };
+        #pragma omp for schedule(dynamic)
+        for(read_id_t r=0; r<nbRead; r++)
+        //for(int r=0; r<1; r++)
+        {   
+            if(v>=1 and (r+1) %(nbRead/100) == 0){
+                print(float(r+1)/nbRead*100);
 
-    bool not_in;
-    // going through the read list
-
-    //for(read_id_t r=0; r<nbRead; r++)
-    for(int r=0; r<1; r++)
-    {   
-        // checking read id is not already found, if sampling is activated
-        if(sampling){
-            not_in = stopSearch.find(r) == stopSearch.end();
-        }
-        else{
-            not_in = true;
-        }
-        // if ressearsh is allowed, then proceed
-        if(not_in){
-
-            // cleaning result sets and temporary structures
-            results[0].clear();
-            results[1].clear();
-            processedKmer.clear();
-            keptId.clear();
-            clear(kmSet);
-            DnaString readSequence = seqs[r];
-            
-            // going through the read using K size window
-            //for( int i = 0; i < length(readSequence) - k + 1; i+= bloc_size ){
-            for( int i = 0; i < 1; i++ ){
-                Infix<DnaString>::Type inf = infix(readSequence, i, i+k);
-                DnaString km = DnaString(inf);
-                std::string strKm = toCString(CharString(km));
-                print(strKm);
-                if(not processedKmer[strKm]){
-                    processedKmer[strKm] = true;
-                    if(not haveLowComplexity(km,lc)){
-                        appendValue(kmSet, km);
-                    }
-                }
             }
 
-            direction = 0;                    
-            find<0, NB_ERR>(delegateParallel, index, kmSet , EditDistance(), Parallel());
-            // if needed:
-            if(rc){
-                for(auto& el: kmSet){
-                    reverseComplement(el);
-                }
-                
-                direction = 1;
-                find<0, NB_ERR>(delegateParallel, index, kmSet , EditDistance(), Parallel() );
+            // checking read id is not already found, if sampling is activated
+            if(sampling){
+                not_in = stopSearch.find(r) == stopSearch.end();
             }
-            
-            // checking number of matches in forward
-            for(auto it = results[0].begin(); it != results[0].end(); ++it ){
-                if(it->second.size() >= treshold ){
-                    keptId[it->first] = it->second;
-                    // if read id is associated, do not use it again
-                    if(sampling){
-                        #pragma omp critical
-                        stopSearch.insert(it->first);
-                    }
-                }
+            else{
+                not_in = true;
             }
+            // if ressearsh is allowed, then proceed
+            if(not_in){
 
-            // exporting
-            printReadNames(r,keptId,ids,outputFile);
-
-            // and reverse if wanted
-            if(rc){
+                // cleaning result sets and temporary structures
+                results[0].clear();
+                results[1].clear();
+                processedKmer.clear();
                 keptId.clear();
-                for(auto it = results[1].begin(); it != results[1].end(); ++it ){
-                    if(it->second.size() >= treshold ){
-                        keptId[it->first] = it->second;
-                        // if read id is associated, do not use it again
+                clear(kmSet);
+                DnaString readSequence = seqs[r];
                 
-                        if(sampling){
-                           #pragma omp critical
-                           stopSearch.insert(it->first);
+                // going through the read using K size window
+                for( int i = 0; i < length(readSequence) - k + 1; i+= bloc_size ){
+                //for( int i = 0; i < 1; i++ ){
+                    Infix<DnaString>::Type inf = infix(readSequence, i, i+k);
+                    DnaString km = DnaString(inf);
+                    std::string strKm = toCString(CharString(km));
+                    //print(strKm);
+                    if(not processedKmer[strKm]){
+                        processedKmer[strKm] = true;
+                        if(not haveLowComplexity(km,lc)){
+                            appendValue(kmSet, km);
                         }
                     }
                 }
+
+                direction = 0;
+                find<0, NB_ERR>(delegateParallel, index, kmSet , EditDistance(), Parallel());
+                searchCount++;
+                // if needed:
+                if(rc){
+                    for(auto& el: kmSet){
+                        reverseComplement(el);
+                    }
+                    
+                    direction = 1;
+                    find<0, NB_ERR>(delegateParallel, index, kmSet , EditDistance(), Parallel() );
+                    
+                }
                 
+                // checking number of matches in forward
+                for(auto it = results[0].begin(); it != results[0].end(); ++it ){
+                    if(it->second.size() >= treshold ){
+                        keptId[it->first] = it->second;
+                        // if read id is associated, do not use it again
+                        if(sampling){
+                            #pragma omp critical
+                            stopSearch.insert(it->first);
+                            searchCount++;
+                        }
+                    }
+                }
+
+                // exporting
                 printReadNames(r,keptId,ids,outputFile);
+
+                // and reverse if wanted
+                if(rc){
+                    keptId.clear();
+                    for(auto it = results[1].begin(); it != results[1].end(); ++it ){
+                        if(it->second.size() >= treshold ){
+                            keptId[it->first] = it->second;
+                            // if read id is associated, do not use it again
+                    
+                            if(sampling){
+                               #pragma omp critical
+                               stopSearch.insert(it->first);
+
+                            }
+                        }
+                    }
+                    
+                    printReadNames(r,keptId,ids,outputFile);
+                }
+
+
+            #pragma omp critical
+            if(rc){
+                searchCount++;
             }
+            #pragma omp critical
+            searchCount++;
+            }
+           
         }
-       
+        
     }
-    if(v>=1){
-        print("DONE");
+    std::cout << searchCount << " ressearchs have been made. (RC included)" << std::endl;
+        if(v>=1){
+            print("DONE");
     }
 }
 
@@ -320,6 +350,10 @@ int main(int argc, char const ** argv)
         "o", "outFile", "path to the output file",
         seqan::ArgParseArgument::STRING, "output file"));
 
+     addOption(parser, seqan::ArgParseOption(
+        "i", "index", "path and prefix of the index files",
+        seqan::ArgParseArgument::STRING, "index file"));
+
     // Parse command line.
     
     seqan::ArgumentParser::ParseResult res = seqan::parse(parser, argc, argv);
@@ -329,9 +363,8 @@ int main(int argc, char const ** argv)
     if (res != seqan::ArgumentParser::PARSE_OK)
         return res == seqan::ArgumentParser::PARSE_ERROR;
 
-    // Extract option values and print them.
-    std::string kmFile;     // default Kmer file
-    std::string output = "out.txt";     // output file
+    std::string output = "out.edges";     // output file
+    std::string indexFile = "no_index"; // index prefix, if any
     unsigned nbThread = 4;  // default number of thread (4)
     //unsigned nbErr = 2;     // default number of errors EDIT: CAN NOT BE ASSIGNED
     unsigned v = 0;         // verobisty, default = 0
@@ -351,16 +384,21 @@ int main(int argc, char const ** argv)
     getOptionValue(ob, parser, "ob");
     getOptionValue(lc, parser, "lc");
     getOptionValue(output, parser, "o");
+    getOptionValue(indexFile, parser, "i");
     
     std::string text;
     getArgumentValue(text, parser, 0);
+    
     std::ofstream outputFile;
     outputFile.open (output);
     if(v>=1){
-        outputFile << text << " " << kmFile << " " << nbThread << std::endl;
+        outputFile << text << " File:" << text << " nbThread:" << nbThread << " k:" << k;
+        outputFile <<  " nk:" << nk << " ob:" << ob << " lc:" << lc;
+        outputFile <<  " rc:" << rc << " sampling:" << sampling <<std::endl;
+        outputFile <<  " Output:" << output << std::endl;
     }
 
-    approxCount(text, k, nbThread, outputFile,v,ks,nk,rc,lc,sampling,ob);
+    approxCount(text,indexFile, k, nbThread, outputFile,v,ks,nk,rc,lc,sampling,ob);
     outputFile.close();
     if(v>=1){
         print("END");
