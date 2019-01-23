@@ -151,7 +151,7 @@ void approxCount(const std::string& filename, const std::string & indexFile, con
     // -------------------------
 
     // RESSEARCH ---------------
-   // omp_set_num_threads(nbThread);
+    omp_set_num_threads(nbThread);
     if(v>=1)
         print("STARTING RESSEARCH");
     std::set<read_id_t> stopSearch;
