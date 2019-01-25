@@ -33,35 +33,48 @@ void print(TPrintType text)
 }
 
 
-inline  bool haveLowComplexity(DnaString sequence, double threshold){
+inline unsigned dna2int(DnaString seq){
+    
+    unsigned value = 0;
+    for(auto c : seq){
+        value = value << 2 | uint8_t(c);    
+    }
+    return(value);
+}
+
+
+inline  bool haveLowComplexity(DnaString & sequence, double threshold){
     // New version, using "DUST2" method
     // scanning 2-mers, squaring count, discard if over limit
-    
     unsigned l = length(sequence);
-    std::unordered_map<std::string,int> counter;
-    std::string seq = toCString(CharString(sequence));
+    // std::unordered_map<std::string,int> counter;
+    // std::string seq = toCString(CharString(sequence));
+    // assert(l == seq.length());
+    unsigned counts[16] = { 0 };
     // reading using sliding window of 2
-    for(int i =0; i < l-2; i++){
-        std::string c = seq.substr(i,2);
-        if(counter.count(c) !=0 ){
-            counter[c]+=1;    
-        }
-        else{
-            counter[c]=1;
-        }
+    for(int i = 0; i < l-1; i++){
+        uint8_t c = (uint8_t(sequence[i+1]) << 2) | uint8_t(sequence[i]);
+        counts[c]++;
+        // std::string c = seq.substr(i,2);
+        // if(counter.count(c) !=0 ){
+        //     counter[c]+=1;    
+        // }
+        // else{
+        //     counter[c]=1;
+        // }
     }
     float s = 0;
-    float sum = 0.0;
-    for(auto v:counter){
-        sum+=  float(v.second * (v.second-1) / 2);  
+    size_t sum = 0;
+    // for(auto v:counter){
+    //     sum+=  float(v.second * (v.second-1) / 2.0);  
+    // }
+    for(auto v:counts){
+        sum +=  v * (v-1);  
     }
-    s =  sum / (l-2);
+    s =  sum / float(2 * (l-2));
     //std::cout << "LOW C "<<sequence << " "  << s << " "<< threshold << " " << bool(s>=threshold) << std::endl;
-    if(s>= threshold){
+    return s>= threshold;
         
-        return(true);
-    }
-    return(false);
 }
 
 
@@ -88,7 +101,7 @@ inline int dichoFind(TNumberType target, TArrayType &values){
 
 
 // Function used to print the "clustering" results
-void printReadNames(int currentReadId, read2pos_map_t readIdMap , StringSet<CharString> realIds ,std::ofstream &outputFile)
+void printReadNames(int currentReadId, read2pos_map_t& readIdMap , StringSet<CharString>& realIds ,std::ofstream &outputFile)
 {
     
     outputFile << realIds[currentReadId];
@@ -134,52 +147,59 @@ void approxCount(const std::string& filename, const std::string & indexFile, con
     // Constants (should be in upper case)
     const int nbRead  = length(ids);     // Number of reads in the file
 
-    index_t index;
-
+    
     // INDEX CREATION ----------
     if(v>=1)
         print("CREATING INDEX");
-        if(open(index,indexFile.c_str())){
-            print("LOADED FROM INDEX FILE");
-        }
-        else{
+
+    index_t index(allReads);
+
+    if(indexFile != ""){
+        if(v>=1)
+            print("LOADING FROM INDEX FILE");
+        open(index,indexFile.c_str());
+        
+    }
+    else{
+        if(v>=1)
             print("NO INDEX FILE, CREATING FROM SCRATCH...");
-            index_t index(allReads);
-        }
+        indexCreate(index);
+    }
+    
     if(v>=1)
         print("DONE");
+    
+    // -------------------------
+    // RESSEARCH ---------------
     // -------------------------
 
-    // RESSEARCH ---------------
-    omp_set_num_threads(nbThread);
     if(v>=1)
         print("STARTING RESSEARCH");
+   
     std::set<read_id_t> stopSearch;
-    int searchCount = 0;
-    #pragma omp parallel  firstprivate(index) shared(ids, seqs, treshold, rc, stopSearch, lc, sampling, searchCount)
+    int searchCount[nbThread]={0};
+    
+    omp_set_num_threads(nbThread);
+    #pragma omp parallel  shared(ids, seqs, treshold, rc, stopSearch, lc, sampling, searchCount, index)
     {
         // storing results
         std::array<read2pos_map_t, 2> results;
         int direction = 0 ;
         read2pos_map_t keptId;
-        std::unordered_map<std::string, bool> processedKmer;
-        StringSet<DnaString> kmSet;
+        std::unordered_map<unsigned, bool> processedKmer;
 
         // Max number of errors
-        const uint8_t NB_ERR = 1;
+        const uint8_t NB_ERR = 2;
 
         auto delegateParallel = [&](auto & iter, const DnaString & needle, int errors)// __attribute__((noinline))
         {
-            
             for (auto occ : getOccurrences(iter)){
-                
                 // Identifying read Id and position on read    
                 // and esting if the occurence is on one read only
                 // (not between two reads)
                 int readId= dichoFind(occ,lenReads);
                 int l = lenReads[readId+1] - lenReads[readId];
                 read_pos_t readPos =  occ - lenReads[readId];
-                                
                 if( readPos + k < l )
                 {   
                     #pragma omp critical
@@ -190,79 +210,70 @@ void approxCount(const std::string& filename, const std::string & indexFile, con
             }
         };
 
-        bool not_in;
         // going through the read list
-        
         #pragma omp for schedule(dynamic)
         for(read_id_t r=0; r<nbRead; r++)
-        //for(int r=0; r<1; r++)
-        {   
-            if(v>=1 and (r+1) %(nbRead/100) == 0){
-                print(round(float(r+1)/nbRead*100));
+        {
 
+            if(v>=2 and (r+1) %(nbRead/100) == 0){
+                print( round(float(r+1)/nbRead*100));
             }
 
             // checking read id is not already found, if sampling is activated
-            if(sampling){
-                not_in = stopSearch.find(r) == stopSearch.end();
-            }
-            else{
-                not_in = true;
-            }
-            // if ressearsh is allowed, then proceed
-            if(not_in){
+                    
+            if( not sampling  or stopSearch.find(r) == stopSearch.end()){
 
-                // cleaning result sets and temporary structures
+                // cleaning result set
                 results[0].clear();
                 results[1].clear();
                 processedKmer.clear();
-                keptId.clear();
-                clear(kmSet);
                 DnaString readSequence = seqs[r];
-                
                 // going through the read using K size window
                 for( int i = 0; i < length(readSequence) - k + 1; i+= bloc_size ){
-                //for( int i = 0; i < 1; i++ ){
-                    Infix<DnaString>::Type inf = infix(readSequence, i, i+k);
-                    DnaString km = DnaString(inf);
-                    std::string strKm = toCString(CharString(km));
-                    //print(strKm);
-                    if(not processedKmer[strKm]){
-                        processedKmer[strKm] = true;
-                        if(not haveLowComplexity(km,lc)){
-                            appendValue(kmSet, km);
+                    
+                    DnaString km = infix(readSequence, i, i+k);
+                    
+                    // hashing kmer to find out if we searched it before.
+                    unsigned kmHash = dna2int(km);
+                    if(not processedKmer[kmHash]){
+                        processedKmer[kmHash] = true;
+                        bool haveLc = haveLowComplexity(km,lc);
+                        if(not haveLc){
+                            // Forward strand ressearch
+                            direction = 0;
+                            find<0, NB_ERR>(delegateParallel, index, km , EditDistance() );
+                            
+                            #pragma omp critical
+                            {searchCount[omp_get_thread_num()]++;}
+
+                            // Reverse complement
+                            if(rc){
+                                // ressearching using reverse complement k-mer too
+                                reverseComplement(km);
+                                direction = 1;
+                                find<0, NB_ERR>(delegateParallel, index, km , EditDistance() );
+                                
+                                #pragma omp critical
+                                {searchCount[omp_get_thread_num()]++;}
+                            }
                         }
                     }
                 }
-
-                direction = 0;
-                find<0, NB_ERR>(delegateParallel, index, kmSet , EditDistance(), Parallel());
-                searchCount++;
-                // if needed:
-                if(rc){
-                    for(auto& el: kmSet){
-                        reverseComplement(el);
-                    }
-                    
-                    direction = 1;
-                    find<0, NB_ERR>(delegateParallel, index, kmSet , EditDistance(), Parallel() );
-                    
-                }
                 
+                
+                keptId.clear();
                 // checking number of matches in forward
                 for(auto it = results[0].begin(); it != results[0].end(); ++it ){
                     if(it->second.size() >= treshold ){
                         keptId[it->first] = it->second;
                         // if read id is associated, do not use it again
-                        if(sampling){
-                            #pragma omp critical
-                            stopSearch.insert(it->first);
-                            searchCount++;
-                        }
+                        #pragma omp critical
+                        stopSearch.insert(it->first);
                     }
                 }
 
                 // exporting
+                #pragma omp critical
                 printReadNames(r,keptId,ids,outputFile);
 
                 // and reverse if wanted
@@ -272,34 +283,31 @@ void approxCount(const std::string& filename, const std::string & indexFile, con
                         if(it->second.size() >= treshold ){
                             keptId[it->first] = it->second;
                             // if read id is associated, do not use it again
-                    
-                            if(sampling){
-                               #pragma omp critical
-                               stopSearch.insert(it->first);
-
-                            }
+                            #pragma omp critical
+                            stopSearch.insert(it->first);
                         }
                     }
-                    
+                    #pragma omp critical
                     printReadNames(r,keptId,ids,outputFile);
                 }
-
-
-            #pragma omp critical
-            if(rc){
-                searchCount++;
-            }
-            #pragma omp critical
-            searchCount++;
-            }
-           
+                keptId.clear();
+           }
         }
+    }
+
+    if(v>=1){
+        print("DONE");
+    }
         
+
+    print("Number of ressearch made per thread: ");
+    int tot = 0;
+    for(int i = 0; i< nbThread; i++){
+        std::cout << "Thread " << i << " : " << searchCount[i] << std::endl; 
+        tot+= searchCount[i];
     }
-    std::cout << searchCount << " ressearchs have been made. (RC included)" << std::endl;
-        if(v>=1){
-            print("DONE");
-    }
+    std::cout << "Total : " << tot << std::endl;
+
 }
 
 
@@ -364,7 +372,7 @@ int main(int argc, char const ** argv)
         return res == seqan::ArgumentParser::PARSE_ERROR;
 
     std::string output = "out.edges";     // output file
-    std::string indexFile = "no_index"; // index prefix, if any
+    std::string indexFile = ""; // index prefix, if any
     unsigned nbThread = 4;  // default number of thread (4)
     //unsigned nbErr = 2;     // default number of errors EDIT: CAN NOT BE ASSIGNED
     unsigned v = 0;         // verobisty, default = 0
