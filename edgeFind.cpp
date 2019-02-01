@@ -20,7 +20,7 @@ using read_pos_t = uint16_t;
 using read_id_t = unsigned;
 using pos_vector_t = std::vector<read_pos_t>;
 using read2pos_map_t = std::map<int,std::vector<read_pos_t> >;
-using index_t = Index<DnaString, BidirectionalIndex<FMIndex<void,TFastConfig> > >;
+using index_t = Index<StringSet<DnaString>, BidirectionalIndex<FMIndex<void,TFastConfig> > >;
 
 
 const auto boot_time = std::chrono::steady_clock::now();
@@ -131,16 +131,6 @@ void approxCount(const std::string& filename, const std::string & indexFile, con
     SeqFileIn seqFileIn(toCString(filename));
     readRecords(ids, seqs, seqFileIn);
 
-    // Creating the sequence to index
-    DnaString allReads;
-    std::vector<unsigned long int> lenReads; // summed size of all the reads
-    int n = 0;
-    lenReads.push_back(n);
-    for (unsigned i = 0; i < length(ids); ++i){
-        n += length(seqs[i]);
-        lenReads.push_back(n);
-        append(allReads,seqs[i]);
-    }
     if(v>=1)
         print("DONE");
 
@@ -152,7 +142,7 @@ void approxCount(const std::string& filename, const std::string & indexFile, con
     if(v>=1)
         print("CREATING INDEX");
 
-    index_t index(allReads);
+    index_t index(seqs);
 
     if(indexFile != ""){
         if(v>=1)
@@ -177,10 +167,10 @@ void approxCount(const std::string& filename, const std::string & indexFile, con
         print("STARTING RESSEARCH");
    
     std::set<read_id_t> stopSearch;
-    int searchCount[nbThread]={0};
+    //unsigned searchCount[nbThread]={0};
     
     omp_set_num_threads(nbThread);
-    #pragma omp parallel  shared(ids, seqs, treshold, rc, stopSearch, lc, sampling, searchCount, index)
+    #pragma omp parallel  shared(ids, seqs, treshold, rc, stopSearch, lc, sampling, index)
     {
         // storing results
         std::array<read2pos_map_t, 2> results;
@@ -195,18 +185,15 @@ void approxCount(const std::string& filename, const std::string & indexFile, con
         {
             for (auto occ : getOccurrences(iter)){
                 // Identifying read Id and position on read    
-                // and esting if the occurence is on one read only
+                // and testing if the occurence is on one read only
                 // (not between two reads)
-                int readId= dichoFind(occ,lenReads);
-                int l = lenReads[readId+1] - lenReads[readId];
-                read_pos_t readPos =  occ - lenReads[readId];
-                if( readPos + k < l )
-                {   
-                    #pragma omp critical
-                    if(std::find(results[direction][readId].begin(), results[direction][readId].end(), readPos/ob ) == results[direction][readId].end() ){
-                        results[direction][readId].push_back(readPos/ob);
-                    }
+                int readId= getValueI1(occ);
+                read_pos_t readPos =  getValueI2(occ); 
+                #pragma omp critical
+                if(std::find(results[direction][readId].begin(), results[direction][readId].end(), readPos/ob ) == results[direction][readId].end() ){
+                   results[direction][readId].push_back(readPos/ob);
                 }
+            
             }
         };
 
@@ -215,8 +202,10 @@ void approxCount(const std::string& filename, const std::string & indexFile, con
         for(read_id_t r=0; r<nbRead; r++)
         {
 
-            if(v>=2 and (r+1) %(nbRead/100) == 0){
-                print( round(float(r+1)/nbRead*100));
+            if(v>=2 and nbRead>=100 and  (r+1) %(nbRead/100) == 0){
+
+                print( std::to_string(round(float(r+1)/nbRead*100)) + "%" );
+                print( r );
             }
 
             // checking read id is not already found, if sampling is activated
@@ -243,8 +232,8 @@ void approxCount(const std::string& filename, const std::string & indexFile, con
                             direction = 0;
                             find<0, NB_ERR>(delegateParallel, index, km , EditDistance() );
                             
-                            #pragma omp critical
-                            {searchCount[omp_get_thread_num()]++;}
+                            // #pragma omp critical
+                            // {searchCount[omp_get_thread_num()]++;}
 
                             // Reverse complement
                             if(rc){
@@ -253,8 +242,8 @@ void approxCount(const std::string& filename, const std::string & indexFile, con
                                 direction = 1;
                                 find<0, NB_ERR>(delegateParallel, index, km , EditDistance() );
                                 
-                                #pragma omp critical
-                                {searchCount[omp_get_thread_num()]++;}
+                                // #pragma omp critical
+                                // {searchCount[omp_get_thread_num()]++;}
                             }
                         }
                     }
@@ -300,13 +289,13 @@ void approxCount(const std::string& filename, const std::string & indexFile, con
     }
         
 
-    print("Number of ressearch made per thread: ");
-    int tot = 0;
-    for(int i = 0; i< nbThread; i++){
-        std::cout << "Thread " << i << " : " << searchCount[i] << std::endl; 
-        tot+= searchCount[i];
-    }
-    std::cout << "Total : " << tot << std::endl;
+    // print("Number of ressearch made per thread: ");
+    // int tot = 0;
+    // for(int i = 0; i< nbThread; i++){
+    //     std::cout << "Thread " << i << " : " << searchCount[i] << std::endl; 
+    //     tot+= searchCount[i];
+    // }
+    // std::cout << "Total : " << tot << std::endl;
 
 }
 
