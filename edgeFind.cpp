@@ -79,27 +79,6 @@ inline  bool haveLowComplexity(DnaString & sequence, double threshold){
 
 
 
-template<typename TNumberType, typename TArrayType> 
-inline int dichoFind(TNumberType target, TArrayType &values){
-    int up = values.size();
-    
-    int down = 0;
-    int mid;
-
-    while(up-1!=down){
-        mid = (up+down)/2;
-        if(values[mid]>target){
-            up = mid;
-        }
-        else if(values[mid]<=target){
-            down = mid;
-        }
-
-    }   
-    return(down);
-}
-
-
 // Function used to print the "clustering" results
 void printReadNames(int currentReadId, read2pos_map_t& readIdMap , StringSet<CharString>& realIds ,std::ofstream &outputFile)
 {
@@ -115,7 +94,7 @@ void printReadNames(int currentReadId, read2pos_map_t& readIdMap , StringSet<Cha
         }
     }
 
-    outputFile << std::endl;
+    outputFile << "\n";
 }
 
 
@@ -288,15 +267,6 @@ void approxCount(const std::string& filename, const std::string & indexFile, con
         print("DONE");
     }
         
-
-    // print("Number of ressearch made per thread: ");
-    // int tot = 0;
-    // for(int i = 0; i< nbThread; i++){
-    //     std::cout << "Thread " << i << " : " << searchCount[i] << std::endl; 
-    //     tot+= searchCount[i];
-    // }
-    // std::cout << "Total : " << tot << std::endl;
-
 }
 
 
