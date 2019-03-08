@@ -43,36 +43,29 @@ inline unsigned dna2int(DnaString seq){
 }
 
 
-inline  bool haveLowComplexity(DnaString & sequence, double threshold){
+float adjust_threshold(float c_old, uint8_t k_old, uint8_t k_new ){
+    float c_new = c_old * float((k_new - 2 + 1)^2 / (k_old - 2 + 1)^2);
+    return(c_new);
+}
+
+inline  bool haveLowComplexity(DnaString & sequence, float threshold){
     // New version, using "DUST2" method
     // scanning 2-mers, squaring count, discard if over limit
     unsigned l = length(sequence);
-    // std::unordered_map<std::string,int> counter;
-    // std::string seq = toCString(CharString(sequence));
-    // assert(l == seq.length());
+
     unsigned counts[16] = { 0 };
     // reading using sliding window of 2
     for(int i = 0; i < l-1; i++){
         uint8_t c = (uint8_t(sequence[i+1]) << 2) | uint8_t(sequence[i]);
         counts[c]++;
-        // std::string c = seq.substr(i,2);
-        // if(counter.count(c) !=0 ){
-        //     counter[c]+=1;    
-        // }
-        // else{
-        //     counter[c]=1;
-        // }
+        
     }
     float s = 0;
     size_t sum = 0;
-    // for(auto v:counter){
-    //     sum+=  float(v.second * (v.second-1) / 2.0);  
-    // }
     for(auto v:counts){
         sum +=  v * (v-1);  
     }
     s =  sum / float(2 * (l-2));
-    //std::cout << "LOW C "<<sequence << " "  << s << " "<< threshold << " " << bool(s>=threshold) << std::endl;
     return s>= threshold;
         
 }
@@ -158,7 +151,7 @@ void approxCount(const std::string& filename, const std::string & indexFile, con
         std::unordered_map<unsigned, bool> processedKmer;
 
         // Max number of errors
-        const uint8_t NB_ERR = 2;
+        const uint8_t NB_ERR = 1;
 
         auto delegateParallel = [&](auto & iter, const DnaString & needle, int errors)// __attribute__((noinline))
         {
@@ -169,10 +162,9 @@ void approxCount(const std::string& filename, const std::string & indexFile, con
                 int readId= getValueI1(occ);
                 read_pos_t readPos =  getValueI2(occ); 
                 #pragma omp critical
-                if(std::find(results[direction][readId].begin(), results[direction][readId].end(), readPos/ob ) == results[direction][readId].end() ){
-                   results[direction][readId].push_back(readPos/ob);
+                if(std::find(results[direction][readId].begin(), results[direction][readId].end(), readPos ) == results[direction][readId].end() ){
+                   results[direction][readId].push_back(readPos);
                 }
-            
             }
         };
 
@@ -333,13 +325,13 @@ int main(int argc, char const ** argv)
     std::string output = "out.edges";     // output file
     std::string indexFile = ""; // index prefix, if any
     unsigned nbThread = 4;  // default number of thread (4)
-    //unsigned nbErr = 2;     // default number of errors EDIT: CAN NOT BE ASSIGNED
+    //unsigned nbErr = 2;   // default number of errors EDIT: CAN NOT BE ASSIGNED
     unsigned v = 0;         // verobisty, default = 0
     unsigned k = 30;        // kmerSize, default = 16
     unsigned ks = 3;        // k-mer skip size, default = 3
     unsigned nk= 3;         // Minimum common k-mer, default = 3
-    double lc= 1.25;        // "dust2" low complexity threshold, default = 1.25
-    unsigned ob= 100;       // occurence bloc default fold size = 100
+    double   lc= 1.25;      // "dust2" low complexity threshold, default = 1.25
+    unsigned ob= 1;       // occurence bloc default fold size = 100
     bool rc = isSet(parser, "revComp"); // checking if revcomp is activated
     bool sampling = isSet(parser,"sampling"); // sampling method activation
 
@@ -364,7 +356,7 @@ int main(int argc, char const ** argv)
         outputFile <<  " rc:" << rc << " sampling:" << sampling <<std::endl;
         outputFile <<  " Output:" << output << std::endl;
     }
-
+    lc = adjust_threshold( lc, 16, k );
     approxCount(text,indexFile, k, nbThread, outputFile,v,ks,nk,rc,lc,sampling,ob);
     outputFile.close();
     if(v>=1){
