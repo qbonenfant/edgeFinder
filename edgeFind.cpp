@@ -21,7 +21,7 @@ using read_id_t = unsigned;
 using pos_vector_t = std::vector<read_pos_t>;
 using read2pos_map_t = std::map<int,std::vector<read_pos_t> >;
 using index_t = Index<StringSet<DnaString>, BidirectionalIndex<FMIndex<void,TFastConfig> > >;
-
+using int_vector = std::vector<int>;
 
 const auto boot_time = std::chrono::steady_clock::now();
 // Shortcut to print text in stdout
@@ -46,6 +46,41 @@ inline unsigned dna2int(DnaString seq){
 float adjust_threshold(float c_old, uint8_t k_old, uint8_t k_new ){
     float c_new = c_old * float((k_new - 2 + 1)^2 / (k_old - 2 + 1)^2);
     return(c_new);
+}
+
+int_vector LIS(int_vector X){
+    // Wikipedia implementation of an efficient LIS
+    // Works in O(n log n) time.
+    // Bench test shows it can compute LIS for 10^9 sequences of 5000 elements in less than a second.
+    // Good enough for me.
+    const int N = X.size();
+    int L = 0;
+    int_vector P(N);
+    int_vector M(N+1);  
+    for(int i=0; i<N; i++){
+        int lo = 1;
+        int hi = L;
+        while(lo <= hi){
+            int mid = ceil((lo+hi)/2);
+            if(X[M[mid]] <= X[i])
+                lo = mid+1;
+            else
+                hi = mid-1;
+        }
+        int newL = lo;
+        P[i] = M[newL-1];
+        M[newL] = i;
+
+        if(newL > L)
+            L = newL;
+    }
+    int_vector S(L);
+    int k = M[L];
+    for(int i= L-1; i>=0; i--){
+        S[i] = X[k];
+        k = P[k];
+    }
+    return(S);
 }
 
 inline  bool haveLowComplexity(DnaString & sequence, float threshold){
@@ -224,9 +259,6 @@ void approxCount(const std::string& filename, const std::string & indexFile, con
                             direction = 0;
                             find<0, NB_ERR>(delegateParallel, index, km , EditDistance() );
                             
-                            // #pragma omp critical
-                            // {searchCount[omp_get_thread_num()]++;}
-
                             // Reverse complement
                             if(rc){
                                 // ressearching using reverse complement k-mer too
