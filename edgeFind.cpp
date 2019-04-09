@@ -21,7 +21,7 @@ using read_id_t = unsigned;
 using pos_vector_t = std::vector<read_pos_t>;
 using read2pos_map_t = std::map<int,std::vector<read_pos_t> >;
 using index_t = Index<StringSet<DnaString>, BidirectionalIndex<FMIndex<void,TFastConfig> > >;
-using int_vector = std::vector<int>;
+using int_vector = std::vector<uint16_t>;
 
 const auto boot_time = std::chrono::steady_clock::now();
 // Shortcut to print text in stdout
@@ -125,8 +125,26 @@ void printReadNames(int currentReadId, read2pos_map_t& readIdMap , StringSet<Cha
     outputFile << "\n";
 }
 
+// Function used to print the read names associated to current read, if the length of the LIS of mapped pos is high enough 
+void printReadNamesWithLIS(int currentReadId, read2pos_map_t& readIdMap , StringSet<CharString>& realIds ,std::ofstream &outputFile)
+{
+    
+    outputFile << realIds[currentReadId];
+    for(auto it=readIdMap.begin(); it != readIdMap.end(); ++it){
 
-// Function used to print the "clustering" results
+        int id =  it->first;
+        // Avoid printing the same id
+        if(id != currentReadId){
+            outputFile << "\t" << realIds[id];
+            outputFile << "\t" << LIS(it->second).size();
+        }
+    }
+
+    outputFile << "\n";
+}
+
+
+// Function used to print all the positions for associated reads
 void printReadNamesAndPos(int currentReadId, read2pos_map_t& readIdMap , StringSet<CharString>& realIds ,std::ofstream &outputFile)
 {
     
@@ -148,8 +166,11 @@ void printReadNamesAndPos(int currentReadId, read2pos_map_t& readIdMap , StringS
 
 
 // Search and count a kmer list in a fasta file, at at most a levenstein distance of 2.
-void approxCount(const std::string& filename, const std::string & indexFile, const int k, const int& nbThread, std::ofstream &outputFile, int v, int bloc_size, int treshold, bool rc, double lc, bool sampling, int ob){
+void approxCount(const std::string& filename, const std::string & indexFile, const int k, const int& nb_thread, std::ofstream &outputFile, int v, int bloc_size, int treshold, bool rc, double lc, bool sampling ){
     
+    // Max number of errors, need to be fixed at compile time
+    const uint8_t NB_ERR = 1;
+
     if(v>=1)
         print("PARSING FILE");
 
@@ -195,9 +216,9 @@ void approxCount(const std::string& filename, const std::string & indexFile, con
         print("STARTING RESSEARCH");
    
     std::set<read_id_t> stopSearch;
-    //unsigned searchCount[nbThread]={0};
+    //unsigned searchCount[nb_thread]={0};
     
-    omp_set_num_threads(nbThread);
+    omp_set_num_threads(nb_thread);
     #pragma omp parallel  shared(ids, seqs, treshold, rc, stopSearch, lc, sampling, index)
     {
         // storing results
@@ -206,8 +227,7 @@ void approxCount(const std::string& filename, const std::string & indexFile, con
         read2pos_map_t keptId;
         std::unordered_map<unsigned, bool> processedKmer;
 
-        // Max number of errors
-        const uint8_t NB_ERR = 1;
+        
 
         auto delegateParallel = [&](auto & iter, const DnaString & needle, int errors)// __attribute__((noinline))
         {
@@ -277,7 +297,8 @@ void approxCount(const std::string& filename, const std::string & indexFile, con
                 keptId.clear();
                 // checking number of matches in forward
                 for(auto it = results[0].begin(); it != results[0].end(); ++it ){
-                    if(it->second.size() >= treshold ){
+                    // looking for the longet streak of kmers that are colinear to our read.
+                    if(LIS(it->second).size() >= treshold ){
                         keptId[it->first] = it->second;
                         // if read id is associated, do not use it again
                         #pragma omp critical
@@ -287,13 +308,17 @@ void approxCount(const std::string& filename, const std::string & indexFile, con
 
                 // exporting
                 #pragma omp critical
-                printReadNames(r,keptId,ids,outputFile);
+                printReadNamesWithLIS(r,keptId,ids,outputFile);
 
                 // and reverse if wanted
                 if(rc){
                     keptId.clear();
+                    
                     for(auto it = results[1].begin(); it != results[1].end(); ++it ){
-                        if(it->second.size() >= treshold ){
+                        // Reversing the results, otherwise LIS won't really make sens.
+                        int_vector reversed = it->second;
+                        std::reverse(reversed.begin(), reversed.end());
+                        if(LIS(reversed).size() >= treshold ){
                             keptId[it->first] = it->second;
                             // if read id is associated, do not use it again
                             #pragma omp critical
@@ -301,7 +326,7 @@ void approxCount(const std::string& filename, const std::string & indexFile, con
                         }
                     }
                     #pragma omp critical
-                    printReadNames(r,keptId,ids,outputFile);
+                    printReadNamesWithLIS(r,keptId,ids,outputFile);
                 }
                 keptId.clear();
            }
@@ -325,7 +350,7 @@ int main(int argc, char const ** argv)
         seqan::ArgParseArgument::STRING, "input filename"));
 
     addOption(parser, seqan::ArgParseOption(
-        "nt", "nbThread", "Number of thread to work with",
+        "nt", "nb_thread", "Number of thread to work with",
         seqan::ArgParseArgument::INTEGER, "INT"));
 
     addOption(parser, seqan::ArgParseOption(
@@ -351,10 +376,6 @@ int main(int argc, char const ** argv)
         seqan::ArgParseArgument::INTEGER, "INT"));
 
     addOption(parser, seqan::ArgParseOption(
-        "ob", "occurence-bloc", "compact occurences in blocs of size ob (11,50,75 are in the same bloc for ob=100",
-        seqan::ArgParseArgument::INTEGER, "INT"));
-
-    addOption(parser, seqan::ArgParseOption(
         "lc", "low-complexity", "Threshold for low complexity",
         seqan::ArgParseArgument::DOUBLE, "DOUBLE"));
 
@@ -377,23 +398,21 @@ int main(int argc, char const ** argv)
 
     std::string output = "out.edges";     // output file
     std::string indexFile = ""; // index prefix, if any
-    unsigned nbThread = 4;  // default number of thread (4)
+    unsigned nb_thread = 4;  // default number of thread (4)
     //unsigned nbErr = 2;   // default number of errors EDIT: CAN NOT BE ASSIGNED
     unsigned v = 0;         // verobisty, default = 0
     unsigned k = 30;        // kmerSize, default = 16
     unsigned ks = 3;        // k-mer skip size, default = 3
     unsigned nk= 3;         // Minimum common k-mer, default = 3
     double   lc= 1.25;      // "dust2" low complexity threshold, default = 1.25
-    unsigned ob= 1;       // occurence bloc default fold size = 100
     bool rc = isSet(parser, "revComp"); // checking if revcomp is activated
     bool sampling = isSet(parser,"sampling"); // sampling method activation
 
-    getOptionValue(nbThread, parser, "nt");
+    getOptionValue(nb_thread, parser, "nt");
     getOptionValue(v, parser, "v");
     getOptionValue(k, parser, "k");
     getOptionValue(nk, parser, "nk");
     getOptionValue(ks, parser, "ks");
-    getOptionValue(ob, parser, "ob");
     getOptionValue(lc, parser, "lc");
     getOptionValue(output, parser, "o");
     getOptionValue(indexFile, parser, "i");
@@ -403,17 +422,24 @@ int main(int argc, char const ** argv)
     
     std::ofstream outputFile;
     outputFile.open (output);
-    if(v>=1){
-        outputFile << text << " File:" << text << " nbThread:" << nbThread << " k:" << k;
-        outputFile <<  " nk:" << nk << " ob:" << ob << " lc:" << lc;
-        outputFile <<  " rc:" << rc << " sampling:" << sampling <<std::endl;
-        outputFile <<  " Output:" << output << std::endl;
-    }
+    outputFile << text << "File:";
+    outputFile << " nb_thread:" << nb_thread;
+    outputFile << " k:" << k;
+    outputFile << " nk:" << nk;
+    outputFile << " kmer_skipped:" << ks;
+    outputFile << " lc:" << lc;
     lc = adjust_threshold( lc, 16, k );
-    approxCount(text,indexFile, k, nbThread, outputFile,v,ks,nk,rc,lc,sampling,ob);
+    outputFile << " adusted_lc:" << lc;
+    outputFile << " rc:" << rc;
+    outputFile << " sampling:" << sampling;
+    outputFile << " index:" << indexFile;
+    outputFile <<std::endl;
+    outputFile <<  " Output:" << output << std::endl;
+
+    approxCount(text,indexFile, k, nb_thread, outputFile,v,ks,nk,rc,lc,sampling);
     outputFile.close();
     if(v>=1){
-        print("END");
+        print("PROGRAM END");
     }
 
     return 0;
