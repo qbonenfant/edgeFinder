@@ -91,6 +91,27 @@ void printReadNames(int currentReadId, read2pos_map_t& readIdMap , StringSet<Cha
 }
 
 
+// Function used to print the "clustering" results
+void printReadNamesAndPos(int currentReadId, read2pos_map_t& readIdMap , StringSet<CharString>& realIds ,std::ofstream &outputFile)
+{
+    
+    for(auto it=readIdMap.begin(); it != readIdMap.end(); ++it){
+        int id =  it->first;
+        // Avoid printing the same id
+        if(id != currentReadId){
+            outputFile << realIds[currentReadId];
+            outputFile << "\t" << realIds[id];
+            for(auto pos: it->second){
+                outputFile << "\t" << pos;
+            }
+            outputFile << "\n";
+        }
+    }
+
+    outputFile << "\n";
+}
+
+
 // Search and count a kmer list in a fasta file, at at most a levenstein distance of 2.
 void approxCount(const std::string& filename, const std::string & indexFile, const int k, const int& nbThread, std::ofstream &outputFile, int v, int bloc_size, int treshold, bool rc, double lc, bool sampling, int ob){
     
