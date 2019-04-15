@@ -44,7 +44,7 @@ inline unsigned dna2int(DnaString seq){
 
 
 float adjust_threshold(float c_old, uint8_t k_old, uint8_t k_new ){
-    float c_new = c_old * float((k_new - 2 + 1)^2 / (k_old - 2 + 1)^2);
+    float c_new = c_old * float( std::pow(k_new - 2 + 1,2) /  std::pow(k_old - 2 + 1,2));
     return(c_new);
 }
 
@@ -422,7 +422,7 @@ int main(int argc, char const ** argv)
     
     std::ofstream outputFile;
     outputFile.open (output);
-    outputFile << text << "File:";
+    outputFile << "File:" << text;
     outputFile << " nb_thread:" << nb_thread;
     outputFile << " k:" << k;
     outputFile << " nk:" << nk;
