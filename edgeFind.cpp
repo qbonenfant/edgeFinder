@@ -8,24 +8,46 @@
 #include <iostream>
 #include <cstdlib>
 #include <fstream>
+#include <unordered_set>
 
 
 using namespace seqan;
 
 
-// Setting the index
-typedef FastFMIndexConfig<void, size_t, 2, 0> TFastConfig;
+// -------------------------- Defining common types ---------------------------------------------------------
 
-using read_pos_t = uint16_t;
-using read_pos_pair_t = std::pair<read_pos_t, read_pos_t>;
-using read_id_t = uint32_t;
-using pos_vector_t = std::vector<read_pos_t>;
-using read2pos_map_t = std::map<int,std::vector<read_pos_pair_t> >; // CHANGED TO PAIR MODE
+// Index parameters, those are the default ones. // Maybe i should convert this typedef to using too...
+typedef FastFMIndexConfig<void, size_t, 1, 0> TFastConfig;
+
+
+// Fasta related types
+using seq_id_set_t = StringSet<CharString>; //  Sequence id set type
+using seq_set_t = StringSet<DnaString>; // Sequences set type
+// Describe a fasta file using a pair of SeqAn data structures.
+using fasta_pair = std::pair<seq_id_set_t, seq_set_t >; 
+
+// Positions related types
+using read_id_t = uint32_t;  // type for the id of the read. 16 bit were too short for files with >2M reads.
+using read_pos_t = uint32_t; // type of the read position. Limited to 32 bits (position won't exceed 4 Gb)
+using pos_vector_t = std::vector<read_pos_t>;// used to store occurences position
+using read_pos_pair_t = std::pair<read_pos_t, read_pos_t>; // Position pair, used to describe mapping
+using pos_pair_vector_t = std::vector<read_pos_pair_t>; //vector of position pairs
+
+
+// Index type, bidirectionnal FM-Index here.
 using index_t = Index<StringSet<DnaString>, BidirectionalIndex<FMIndex<void,TFastConfig> > >;
-using int_vector = std::vector<uint16_t>;
 
+// Result storing type. Associate a read to a vector of read position pair.
+using read2pos_map_t = std::map<read_id_t, pos_pair_vector_t >;
+
+
+// ----------------------------------------------------------------------------------------------------------
+
+
+//-------------- UTILS FUNCTION --------------
+
+// Shortcut to print text in stdout with time stamp
 const auto boot_time = std::chrono::steady_clock::now();
-// Shortcut to print text in stdout
 template<typename TPrintType>
 void print(TPrintType text)
 {
@@ -33,66 +55,26 @@ void print(TPrintType text)
     std::cout << "[" << milis << " ms]\t" << text << std::endl;
 }
 
-// Converts DnaString to int. sequence longer than 32 will cause overflow.
-inline unsigned dna2int(DnaString seq){
+// Extract the second elements from a pair vector
+pos_vector_t extract_second_from_pair(pos_pair_vector_t pos_pair_vector_t){
+    pos_vector_t second_part;
+    second_part.reserve(pos_pair_vector_t.size());
     
-    unsigned value = 0;
-    for(auto c : seq){
-        value = value << 2 | uint8_t(c);    
-    }
-    return(value);
-}
-
-// adjust threshold value to kmer size
-float adjust_threshold(float c_old, uint8_t k_old, uint8_t k_new ){
-    float c_new = c_old * float( std::pow(k_new - 2 + 1,2) /  std::pow(k_old - 2 + 1,2));
-    return(c_new);
-}
-
-// extract the second elements from a pair vector
-int_vector extract_second_from_pair(std::vector<std::pair<read_pos_t, read_pos_t> > pair_vector){
-    int_vector second_part;
-    second_part.reserve(pair_vector.size());
-    
-    for(auto el : pair_vector){
+    for(auto el : pos_pair_vector_t){
         second_part.emplace_back(el.second);
     }
     return(second_part);
 }
 
-int_vector LIS(int_vector X){
-    // Wikipedia implementation of an efficient LIS
-    // Works in O(n log n) time.
-    // Bench test shows it can compute LIS for 10^9 sequences of 5000 elements in less than a second.
-    // Good enough for me.
-    const int N = X.size();
-    int L = 0;
-    int_vector P(N);
-    int_vector M(N+1);  
-    for(int i=0; i<N; i++){
-        int lo = 1;
-        int hi = L;
-        while(lo <= hi){
-            int mid = ceil((lo+hi)/2);
-            if(X[M[mid]] <= X[i])
-                lo = mid+1;
-            else
-                hi = mid-1;
-        }
-        int newL = lo;
-        P[i] = M[newL-1];
-        M[newL] = i;
-
-        if(newL > L)
-            L = newL;
+// Extract the first elements from a pair vector
+pos_vector_t extract_first_from_pair(pos_pair_vector_t pos_pair_vector_t){
+    pos_vector_t second_part;
+    second_part.reserve(pos_pair_vector_t.size());
+    
+    for(auto el : pos_pair_vector_t){
+        second_part.emplace_back(el.first);
     }
-    int_vector S(L);
-    int k = M[L];
-    for(int i= L-1; i>=0; i--){
-        S[i] = X[k];
-        k = P[k];
-    }
-    return(S);
+    return(second_part);
 }
 
 // return true if the sequence is considered "low complexity"
@@ -119,99 +101,151 @@ inline  bool haveLowComplexity(DnaString & sequence, float threshold){
 }
 
 
-
-// Function used to print the "clustering" results
-void printReadNames(int currentReadId, read2pos_map_t& readIdMap , StringSet<CharString>& realIds ,std::ofstream &outputFile)
-{
+// Wikipedia implementation of an efficient LIS
+// Works in O(n log n) time.
+pos_vector_t LIS(pos_vector_t X){
     
-    outputFile << realIds[currentReadId];
-    for(auto it=readIdMap.begin(); it != readIdMap.end(); ++it){
-
-        int id =  it->first;
-        // Avoid printing the same id
-        if(id != currentReadId){
-            outputFile << "\t" << realIds[id];
-            outputFile << "\t" << it->second.size();
+    const int N = X.size();
+    int L = 0;
+    pos_vector_t P(N);
+    pos_vector_t M(N+1);  
+    for(int i=0; i<N; i++){
+        int lo = 1;
+        int hi = L;
+        while(lo <= hi){
+            int mid = ceil((lo+hi)/2);
+            if(X[M[mid]] <= X[i])
+                lo = mid+1;
+            else
+                hi = mid-1;
         }
-    }
+        int newL = lo;
+        P[i] = M[newL-1];
+        M[newL] = i;
 
-    outputFile << "\n";
+        if(newL > L)
+            L = newL;
+    }
+    pos_vector_t S(L);
+    int k = M[L];
+    for(int i= L-1; i>=0; i--){
+        S[i] = X[k];
+        k = P[k];
+    }
+    return(S);
 }
 
-// // Function used to print the read names associated to current read, if the length of the LIS of mapped pos is high enough 
-// void printReadNamesWithLIS(int currentReadId, read2pos_map_t& readIdMap , StringSet<CharString>& realIds ,std::ofstream &outputFile)
-// {
+// LIS for vector of pairs. LIS is computed on second element
+pos_pair_vector_t LIS_Pair(pos_pair_vector_t pv){
+    pos_vector_t X = extract_second_from_pair(pv);
+    const int N = X.size();
+    int L = 0;
+    pos_vector_t P(N);
+    pos_vector_t M(N+1);
     
-//     outputFile << realIds[currentReadId];
-//     for(auto it=readIdMap.begin(); it != readIdMap.end(); ++it){
 
-//         int id =  it->first;
-//         // Avoid printing the same id
-//         if(id != currentReadId){
-//             outputFile << "\t" << realIds[id];
-//             outputFile << "\t" << LIS(it->second).size();
-//         }
-//     }
+    for(int i=0; i<N; i++){
+        int lo = 1;
+        int hi = L;
+        while(lo <= hi){
+            int mid = ceil((lo+hi)/2);
+            if(X[M[mid]] <= X[i])
+                lo = mid+1;
+            else
+                hi = mid-1;
+        }
+        int newL = lo;
+        P[i] = M[newL-1];
+        M[newL] = i;
 
-//     outputFile << "\n";
-// }
+        if(newL > L)
+            L = newL;
+    }
+    pos_pair_vector_t S(L);
+    int k = M[L];
+    for(int i= L-1; i>=0; i--){
+        S[i] = pv[k];
+        k = P[k];
+    }
+    return(S);
+}
 
-
-// Function used to print all the positions for associated reads. output is edge position matrix (epm)
-void printReadNamesAndPos(int currentReadId, read2pos_map_t& readIdMap , StringSet<CharString>& realIds ,std::ofstream &outputFile)
-{
+// Converts DnaString to int. sequence longer than 32 will cause overflow.
+inline unsigned dna2int(DnaString seq){
     
-    for(auto it=readIdMap.begin(); it != readIdMap.end(); ++it){
-        int id =  it->first;
+    unsigned value = 0;
+    for(auto c : seq){
+        value = value << 2 | uint8_t(c);    
+    }
+    return(value);
+}
+
+// adjust threshold value to kmer size
+float adjust_threshold(float c_old, uint8_t k_old, uint8_t k_new ){
+    float c_new = c_old * float( std::pow(k_new - 2 + 1,2) /  std::pow(k_old - 2 + 1,2));
+    return(c_new);
+}
+
+// Just sum up the elements of an array
+template<typename TIterable>
+unsigned array_sum(TIterable int_array){
+    
+    unsigned sum = 0;
+    for(auto el: int_array){
+        sum+= el;
+    }
+
+    return(sum);
+}
+
+//-------------- EXPORT FUNCTION --------------
+
+void export_read_result( read2pos_map_t results, read_id_t current_read_id, unsigned nk, bool reverse, const StringSet<CharString> & realIds, std::ofstream & output_file){
+    
+    for(auto it=results.begin(); it != results.end(); ++it){
         
-        // Avoid printing the same id
-        if(id != currentReadId){
-            outputFile << realIds[currentReadId];
-            outputFile << "\t" << realIds[id];
+        
+        // Avoid printing the same id, and LIS that are too short
+        if(it->first != current_read_id and it->second.size() >= nk ){
+            output_file << realIds[current_read_id];
+            output_file << "\t" << realIds[it->first];
+            output_file << "\t" << reverse;
             for(auto pos: it->second){
-                outputFile << "\t" << pos.first << "," << pos.second;
+                output_file << "\t" << pos.first << "," << pos.second;
                 
             }
-            outputFile << "\n";
+            output_file << "\n";
         }
     }
-
-    outputFile << "\n";
 }
 
 
-// Search and count a kmer list in a fasta file, at at most a levenstein distance of 2.
-void approxCount(const std::string& filename, const std::string & indexFile, const int k, const int& nb_thread, std::ofstream &outputFile, int v, int bloc_size, int treshold, bool rc, double lc, bool sampling ){
-    
-    // Max number of errors, need to be fixed at compile time
-    const uint8_t NB_ERR = 1;
 
+//-------------- ############## --------------
+
+
+//-------------- FASTA PARSING --------------
+void parse_fasta(std::string filename, fasta_pair & fasta, uint8_t v){
+    
     if(v>=1)
         print("PARSING FILE");
 
-    // Parsing input fasta file
-    StringSet<CharString> ids;
-    StringSet<DnaString> seqs;
     SeqFileIn seqFileIn(toCString(filename));
-    readRecords(ids, seqs, seqFileIn);
+    readRecords( fasta.first, fasta.second, seqFileIn);
 
     if(v>=1)
         print("DONE");
+}
+//-------------- ############## --------------
 
-    // Constants (should be in upper case)
-    const int nbRead  = length(ids);     // Number of reads in the file
 
-    
-    // INDEX CREATION ----------
-    if(v>=1)
-        print("CREATING INDEX");
+//-------------- INDEX CREATION --------------
+void create_index(std::string index_file, index_t & index, uint8_t v){
 
-    index_t index(seqs);
-
-    if(indexFile != ""){
+    if(index_file != ""){
         if(v>=1)
             print("LOADING FROM INDEX FILE");
-        open(index,indexFile.c_str());
+        open(index,index_file.c_str());
         
     }
     else{
@@ -222,168 +256,238 @@ void approxCount(const std::string& filename, const std::string & indexFile, con
     
     if(v>=1)
         print("DONE");
-    
-    // -------------------------
-    // RESSEARCH ---------------
-    // -------------------------
+}
+//-------------- ############## --------------
+
+
+//--------------APPROX RESSEARCH--------------
+void approxCount(const StringSet<CharString> & ids, const StringSet<DnaString>  & sequences, index_t & index, std::ofstream & output_file, uint8_t k, uint8_t ks, uint8_t nk ,const uint8_t nb_thread, double lc, bool rc, bool sampling, uint8_t v){
+
+    const unsigned NB_ERR = 1;
 
     if(v>=1)
         print("STARTING RESSEARCH");
    
-    std::set<read_id_t> stopSearch;
-    //unsigned searchCount[nb_thread]={0};
+    // Set of already processed reads. Needs to be shared between all thread.
+    std::unordered_set<read_id_t> processed_reads;
     
-    unsigned nb_direct_ressearch = 0;
-    unsigned nb_reverse_ressearch = 0;
-    unsigned collisions = 0;
-    unsigned total_kmer = 0;
-    unsigned lc_kmer = 0;
+    // Setting number of thread
     omp_set_num_threads(nb_thread);
-    #pragma omp parallel  shared(ids, seqs, treshold, rc, stopSearch, lc, sampling, index)
-    {
-        // storing results
-        std::array<read2pos_map_t, 2> results;
-        int direction = 0 ;
-        read2pos_map_t keptId;
-        std::unordered_map<unsigned, bool> processedKmer;
 
+    // Some counters for run statistics, one per thread to avoid colission.
+    // A 64 bit unsigned int should be large enough to keep track of those.
+    std::vector<unsigned>  nb_ressearch(nb_thread);
+    std::vector<unsigned>  collisions(nb_thread);
+    std::vector<unsigned>  total_kmer(nb_thread);
+    std::vector<unsigned>  lc_kmer(nb_thread);
+            
+
+    // ######################################################################################################
+    // PARALLEL SECTION #####################################################################################
+    // ######################################################################################################
+    #pragma omp parallel  
+    {
+
+        // INITIALISING VARIABLES FOR EACH THREAD
+
+        // Mapping processing variables
+        int direction = 0 ;         // direct or reverse direction
+        read2pos_map_t direct_pos;  // store  pair of position for direct 
+        read2pos_map_t reverse_pos; // and reverse complement kmers.
+        
+        
+        
+        // Keeping track of processed kmer (using hash)    
+        std::unordered_map<unsigned, bool> processedKmer;
+        
+        // current position in the read, need to be declared here to be used inside the lambda.
         unsigned current_pos;
-        unsigned last_pos= 1;
-        std::map<uint16_t, unsigned> last_read_pos;
-        auto delegateParallel = [&](auto & iter, const DnaString & needle, int errors)// __attribute__((noinline))
+        // number of read
+        unsigned nb_read = length(sequences);
+
+
+        // Lambda used to process occurences. 
+        // This function no longer use pragma omp critical since all variables here are 
+        // supposed to be private.
+        // Only the result export should be protected.
+        auto delegateParallel = [&](auto & iter, const DnaString & needle, int errors)
         {
             for (auto occ : getOccurrences(iter)){
-                // Identifying read Id and position on read    
-                // and testing if the occurence is on one read only
-                // (not between two reads)
-                int readId= getValueI1(occ);
+                // Identifying read Id and position on read
+                read_id_t  readId  =  getValueI1(occ);
                 read_pos_t readPos =  getValueI2(occ);
-                std::pair<read_pos_t,read_pos_t> current_pair(current_pos, readPos);
-                if(std::find(results[direction][readId].begin(), results[direction][readId].end(), current_pair ) == results[direction][readId].end() ){
-                    #pragma omp critical
-                    results[direction][readId].push_back(  make_pair(current_pos, readPos) );
+                
+
+                // Checking if the match is not redundant.
+                if(direction == 0){
+                    if(  direct_pos[readId].empty() or direct_pos[readId].back().first != current_pos ){
+                         direct_pos[readId].emplace_back(current_pos, readPos);
+                    }
                 }
-            }
+                else{
+                    if( reverse_pos[readId].empty() or reverse_pos[readId].back().first != current_pos ){
+                         reverse_pos[readId].emplace_back(current_pos, readPos);
+                    }
+                }
+            }        
+        
         };
 
-        // going through the read list
+        // ##################################################################################################
+        // MAIN LOOP ########################################################################################
+        // ##################################################################################################
+    
+        // Going through the read list using a dynamic range allocation strategy
         #pragma omp for schedule(dynamic)
-        for(read_id_t r=0; r<nbRead; r++)
+        for(read_id_t r=0; r<nb_read; r++)
         {
-
-            if(v>=2 and nbRead>=100 and  (r+1) %(nbRead/100) == 0){
-
-                print( std::to_string(round(float(r+1)/nbRead*100)) + "%" );
+            // Progress tracking, if file is large enough.
+            if(v>=2 and nb_read>=100 and (r+1) %(nb_read/100) == 0){
+                print( std::to_string(round(float(r+1)/nb_read*100)) + "%" );
                 print( r );
             }
 
-            // checking read id is not already found, if sampling is activated
-                    
-            if( not sampling  or stopSearch.find(r) == stopSearch.end()){
+            // Checking read id is not already found, if sampling is activated
+            if( not sampling  or processed_reads.find(r) == processed_reads.end() ){
+                
+                #pragma omp critical
+                {
+                    processed_reads;
+                }
 
                 // cleaning result set
-                results[0].clear();
-                results[1].clear();
-                processedKmer.clear();
-                DnaString readSequence = seqs[r];
-                // going through the read using K size window
-                for( current_pos = 0; current_pos < length(readSequence) - k + 1; current_pos += bloc_size ){
+                direct_pos.clear();
+                if(rc){
+                    reverse_pos.clear();
+                }
+                //processedKmer.clear();
+                DnaString readSequence = sequences[r];
+
+                // ##########################################################################################
+                // RESSEARCH ################################################################################
+                // ##########################################################################################
+
+                // going through the read using k size window, every ks
+                for( current_pos = 0; current_pos < length(readSequence) - k + 1; current_pos += ks ){
                     
                     DnaString km = infix(readSequence, current_pos, current_pos + k);
-                    total_kmer += 1;
+                    
+                    // Counting redundant kmer search. 
                     // hashing kmer to find out if we searched it before.
                     unsigned kmHash = dna2int(km);
                     if(not processedKmer[kmHash]){
-                        processedKmer[kmHash] = true;
-                        bool haveLc = haveLowComplexity(km,lc);
-                        if(not haveLc){
-                            // Forward strand ressearch
-                            direction = 0;
+                        processedKmer[kmHash] = true;    
+                    }
+                    else{
+                        collisions[omp_get_thread_num()] += 1;
+                    }
+
+                    // Counting the number of kmer we looked at
+                    total_kmer[omp_get_thread_num()] += 1;
+
+                    // Checking if the kmer has low complexity 
+                    bool haveLc = haveLowComplexity(km,lc);
+
+                    // If not, search it in the index.
+                    if(not haveLc){
+
+                        // Forward strand ressearch
+                        direction = 0;
+                        find<0, NB_ERR>(delegateParallel, index, km , EditDistance() );
+                        
+                        // Counting number of ressearch done
+                        nb_ressearch[omp_get_thread_num()] +=1;
+
+                        // If we want to also search for reverse complement
+                        if(rc){
+                            // ressearching using reverse complement of the k-mer too
+                            reverseComplement(km);
+                            direction = 1;
                             find<0, NB_ERR>(delegateParallel, index, km , EditDistance() );
-                            #pragma omp critical
-                            nb_direct_ressearch += 1;
-                            // Reverse complement
-                            if(rc){
-                                // ressearching using reverse complement k-mer too
-                                reverseComplement(km);
-                                direction = 1;
-                                find<0, NB_ERR>(delegateParallel, index, km , EditDistance() );
-                                #pragma omp critical
-                                nb_reverse_ressearch += 1;
-                                // #pragma omp critical
-                                // {searchCount[omp_get_thread_num()]++;}
-                            }
-                        }
-                        else{
-                            #pragma omp critical
-                            lc_kmer += 1;
+                            
+                            // Also counting ressearch in reverse
+                            nb_ressearch[omp_get_thread_num()] +=1;
                         }
                     }
                     else{
-                        #pragma omp critical
-                        collisions += 1;
+                        // Counting low complexity kmers
+                         lc_kmer[omp_get_thread_num()] +=1;
                     }
-                    //last_pos = current_pos;
+                    
                 }
                 
-                
-                keptId.clear();
-                // checking number of matches in forward
-                for(auto it = results[0].begin(); it != results[0].end(); ++it ){
+                // ##########################################################################################
+                // FILTERING ################################################################################
+                // ##########################################################################################
+
+                // Checking number of matches in forward
+
+                for(auto it = direct_pos.begin(); it != direct_pos.end(); ++it ){
                     // looking for the longet streak of kmers that are colinear to our read.
-                    if(LIS( extract_second_from_pair(it->second) ).size() >= treshold ){
-                        keptId[it->first] = it->second;
+                    it->second = LIS_Pair(it->second);
+                    if( it->second.size() >= nk ){
                         // if read id is associated, do not use it again
                         #pragma omp critical
-                        stopSearch.insert(it->first);
+                        processed_reads.insert(it->first);
                     }
                 }
 
-                // exporting
-                #pragma omp critical
-                //printReadNamesWithLIS(r,keptId,ids,outputFile);
-                printReadNamesAndPos(r,keptId,ids,outputFile);
-
-                // and reverse if wanted
                 if(rc){
-                    keptId.clear();
-                    
-                    for(auto it = results[1].begin(); it != results[1].end(); ++it ){
+                    for(auto it = reverse_pos.begin(); it != reverse_pos.end(); ++it ){
                         // Reversing the results, otherwise LIS won't really make sens.
-                        int_vector reversed = extract_second_from_pair(it->second);
-                        std::reverse(reversed.begin(), reversed.end());
-                        if(LIS(reversed).size() >= treshold ){
-                            keptId[it->first] = it->second;
+                        std::reverse( it->second.begin(), it->second.end());
+                        it->second = LIS_Pair(it->second);
+
+                        // Looking for the longet streak of kmers that are colinear to our read.
+                        if( it->second.size() >= nk ){
                             // if read id is associated, do not use it again
                             #pragma omp critical
-                            stopSearch.insert(it->first);
+                            processed_reads.insert(it->first);
                         }
                     }
-                    #pragma omp critical
-                    //printReadNamesWithLIS(r,keptId,ids,outputFile);
-                    printReadNamesAndPos(r,keptId,ids,outputFile);
                 }
-                keptId.clear();
-                last_read_pos.clear();
-           }
+
+                // EXPORT THE RESULTS
+                #pragma omp critical
+                {
+                    // export results :  map, read id, threshold, reverse?, id list, output stream
+                    export_read_result(direct_pos,  r, nk, false, ids, output_file );
+                    export_read_result(reverse_pos, r, nk, true,  ids, output_file );
+
+                }
+                
+            }
+            // ##############################################################################################
+            // END OF RESSEARCH #############################################################################
+            // ##############################################################################################
         }
+        // ##################################################################################################
+        // END OF MAIN LOOP #################################################################################
+        // ##################################################################################################
     }
+    // ######################################################################################################
+    // END OF PARALLEL SECTION ##############################################################################
+    // ######################################################################################################
+
 
     if(v>=1){
         print("DONE");
     }
+
     if(v>=2){
-        std::cout << "Total number of kmer searched: " << total_kmer << std::endl;
-        std::cout << "Number of collisions: " << collisions;
-        std::cout << " ("  << collisions*100/total_kmer << "%)"     << std::endl;
-        std::cout << "Number of discarded kmer (lc): " << lc_kmer;
-        std::cout << " ("  << lc_kmer*100/total_kmer << "%)"     << std::endl;
-        std::cout << "Direct  researchs: " << nb_direct_ressearch  << std::endl;
-        std::cout << "Reverse researchs: " << nb_reverse_ressearch << std::endl;
-    }     
+        std::cout << "Total number of kmer searched: " <<  array_sum(total_kmer) << std::endl;
+        std::cout << "Number of collisions: " << array_sum(collisions);
+        std::cout << " ("  << array_sum(collisions)*100/array_sum(total_kmer) << "%)"     << std::endl;
+        std::cout << "Number of discarded kmer (lc): " << array_sum(lc_kmer);
+        std::cout << " ("  << array_sum(lc_kmer)*100/array_sum(total_kmer) << "%)"     << std::endl;
+        std::cout << "Number of researchs: " << array_sum(nb_ressearch)  << std::endl;
+        
+    }
 }
 
 
+
+//--------------  ARGS PARSING  --------------
 
 int main(int argc, char const ** argv)
 {
@@ -393,22 +497,32 @@ int main(int argc, char const ** argv)
     addArgument(parser, seqan::ArgParseArgument(
         seqan::ArgParseArgument::STRING, "input filename"));
 
+
+    // Describe how the run should go: nb thread, verbosity, output, use an index ?..
+    addSection(parser, "Global run parameters");
+
     addOption(parser, seqan::ArgParseOption(
         "nt", "nb_thread", "Number of thread to work with",
         seqan::ArgParseArgument::INTEGER, "INT"));
 
     addOption(parser, seqan::ArgParseOption(
-        "v", "verbosity", "Level of details printed out",
+        "v", "verbosity", "Level of details printed out (0: nothing, 1: some, 2: a lot)",
         seqan::ArgParseArgument::INTEGER, "INT"));
 
     addOption(parser, seqan::ArgParseOption(
-        "rc", "revComp", "Ressearsh k-mer's rev-comp too "));
+        "i", "index", "path and prefix of the index files",
+        seqan::ArgParseArgument::STRING, "index file"));
 
     addOption(parser, seqan::ArgParseOption(
-        "s", "sampling", "Use read sampling / no reprocess method"));
+        "o", "outFile", "path to the output file",
+        seqan::ArgParseArgument::STRING, "output file"));
+
+
+    // Parameters for the algorithm
+    addSection(parser, "Ressearch parameters");    
 
     addOption(parser, seqan::ArgParseOption(
-        "ks", "kmer-skip", "Limit ressearch to 1/ks k-mers in the read",
+        "k", "k", "Size of the kmers",
         seqan::ArgParseArgument::INTEGER, "INT"));
 
     addOption(parser, seqan::ArgParseOption(
@@ -416,7 +530,7 @@ int main(int argc, char const ** argv)
         seqan::ArgParseArgument::INTEGER, "INT"));
 
     addOption(parser, seqan::ArgParseOption(
-        "k", "k", "Size of the kmers",
+        "ks", "kmer-skip", "Limit ressearch to 1/ks k-mers in the read",
         seqan::ArgParseArgument::INTEGER, "INT"));
 
     addOption(parser, seqan::ArgParseOption(
@@ -424,12 +538,13 @@ int main(int argc, char const ** argv)
         seqan::ArgParseArgument::DOUBLE, "DOUBLE"));
 
     addOption(parser, seqan::ArgParseOption(
-        "o", "outFile", "path to the output file",
-        seqan::ArgParseArgument::STRING, "output file"));
+        "rc", "revComp", "Ressearsh k-mer's rev-comp too. Set to 0 to deactivate.",
+        seqan::ArgParseArgument::INTEGER, "INT"));
 
-     addOption(parser, seqan::ArgParseOption(
-        "i", "index", "path and prefix of the index files",
-        seqan::ArgParseArgument::STRING, "index file"));
+    addOption(parser, seqan::ArgParseOption(
+        "s", "sampling", "Use read sampling / no reprocess method. Set to 0 to deactivate",
+        seqan::ArgParseArgument::INTEGER, "INT"));
+
 
     // Parse command line.
     
@@ -440,51 +555,100 @@ int main(int argc, char const ** argv)
     if (res != seqan::ArgumentParser::PARSE_OK)
         return res == seqan::ArgumentParser::PARSE_ERROR;
 
-    std::string output = "out.edges";     // output file
-    std::string indexFile = ""; // index prefix, if any
-    unsigned nb_thread = 4;  // default number of thread (4)
-    //unsigned nbErr = 2;   // default number of errors EDIT: CAN NOT BE ASSIGNED
-    unsigned v = 0;         // verobisty, default = 0
-    unsigned k = 30;        // kmerSize, default = 16
-    unsigned ks = 3;        // k-mer skip size, default = 3
-    unsigned nk= 3;         // Minimum common k-mer, default = 3
-    double   lc= 1.25;      // "dust2" low complexity threshold, default = 1.25
-    bool rc = isSet(parser, "revComp"); // checking if revcomp is activated
-    bool sampling = isSet(parser,"sampling"); // sampling method activation
+    // Setting default values ---------------------------------------------------------
+    std::string output = "out.edges";     // output file                               
+    std::string index_file = "";  // index prefix, if any                              
+    unsigned nb_thread = 4;       // default number of thread (4)                      
+    //unsigned nbErr = 2;         // default number of errors EDIT: CAN NOT BE ASSIGNED
+    unsigned v = 0;               // verobisty, default = 0                            
+    unsigned k = 30;              // kmerSize, default = 16                            
+    unsigned ks = 3;              // k-mer skip size, default = 3                      
+    unsigned nk= 3;               // Minimum common k-mer, default = 3                 
+    double   lc= 1.25;            // "dust2" low complexity threshold, default = 1.25  
+    bool rc =  true;              // Rev Comp research ? True by default               
+    bool sampling =  true;        // Sampling method ? True by default                 
+    // --------------------------------------------------------------------------------
 
+
+
+    // ASSIGNING VALUES FROM PARSER ---------------------------------------------------
+    //
+    // Boolean values
+    // checking if revcomp is activated
+    if( isSet(parser, "revComp") ){
+        int val;
+        getOptionValue(val, parser, "rc");
+        rc = val!=0;
+    }
+    
+    // checking if sampling is activated
+    if( isSet(parser,"sampling") ){
+        int val;
+        getOptionValue(val, parser, "sampling");
+        sampling = val!=0;
+    }
+    
+    // Numerical values
     getOptionValue(nb_thread, parser, "nt");
     getOptionValue(v, parser, "v");
     getOptionValue(k, parser, "k");
     getOptionValue(nk, parser, "nk");
     getOptionValue(ks, parser, "ks");
     getOptionValue(lc, parser, "lc");
+    getOptionValue(index_file, parser, "i");
+    
+    // Input file (fasta only)
+    std::string fasta_file;
+    setValidValues(parser, 0, "FASTA fa");
+    getArgumentValue(fasta_file, parser, 0);
+    
+    // Output file 
     getOptionValue(output, parser, "o");
-    getOptionValue(indexFile, parser, "i");
-    
-    std::string text;
-    getArgumentValue(text, parser, 0);
-    
-    std::ofstream outputFile;
-    outputFile.open (output);
-    outputFile << "File:" << text;
-    outputFile << " nb_thread:" << nb_thread;
-    outputFile << " k:" << k;
-    outputFile << " nk:" << nk;
-    outputFile << " kmer_skipped:" << ks;
-    outputFile << " lc:" << lc;
-    lc = adjust_threshold( lc, 16, k );
-    outputFile << " adusted_lc:" << lc;
-    outputFile << " rc:" << rc;
-    outputFile << " sampling:" << sampling;
-    outputFile << " index:" << indexFile;
-    outputFile <<std::endl;
-    outputFile <<  " Output:" << output << std::endl;
+    std::ofstream output_file;
+    output_file.open (output);
 
-    approxCount(text,indexFile, k, nb_thread, outputFile,v,ks,nk,rc,lc,sampling);
-    outputFile.close();
+
+    // Exporting run parameters to output file
+    output_file << "file:" << fasta_file;  
+    output_file << " nb_thread:" << nb_thread;
+    output_file << " k:" << k;
+    output_file << " nk:" << nk;
+    output_file << " kmer_skipped:" << ks;
+    output_file << " lc:" << lc;
+    // adjusting threshold to current kmer size
+    lc = adjust_threshold( lc, 16, k );
+    // display new threshold
+    output_file << " adusted_lc:" << lc;
+    output_file << " rev_comp:" << rc;
+    output_file << " sampling:" << sampling;
+    output_file << " index:" << index_file;
+    output_file <<std::endl;
+    output_file <<  "output:" << output << std::endl;
+
+    // PROGRAM STARTING POINT
+
+    // Fasta parsing
+    fasta_pair fasta;
+    parse_fasta(fasta_file, fasta, v);
+
+    // Index creation
+    
+    if(v>=1)
+        print("INITIALISING INDEX");
+    index_t index(fasta.second);
+    create_index(index_file, index, v);
+
+    // Ressearch and export
+    approxCount(fasta.first, fasta.second, index, output_file, k, ks, nk, nb_thread, lc, rc, sampling, v);
+    
+    
+    // closing
+
+    output_file.close();
     if(v>=1){
         print("PROGRAM END");
     }
 
     return 0;
 }
+//-------------- ##### END ##### --------------
