@@ -17,9 +17,10 @@ using namespace seqan;
 typedef FastFMIndexConfig<void, size_t, 2, 0> TFastConfig;
 
 using read_pos_t = uint16_t;
-using read_id_t = unsigned;
+using read_pos_pair_t = std::pair<read_pos_t, read_pos_t>;
+using read_id_t = uint32_t;
 using pos_vector_t = std::vector<read_pos_t>;
-using read2pos_map_t = std::map<int,std::vector<read_pos_t> >;
+using read2pos_map_t = std::map<int,std::vector<read_pos_pair_t> >; // CHANGED TO PAIR MODE
 using index_t = Index<StringSet<DnaString>, BidirectionalIndex<FMIndex<void,TFastConfig> > >;
 using int_vector = std::vector<uint16_t>;
 
@@ -32,7 +33,7 @@ void print(TPrintType text)
     std::cout << "[" << milis << " ms]\t" << text << std::endl;
 }
 
-
+// Converts DnaString to int. sequence longer than 32 will cause overflow.
 inline unsigned dna2int(DnaString seq){
     
     unsigned value = 0;
@@ -42,10 +43,21 @@ inline unsigned dna2int(DnaString seq){
     return(value);
 }
 
-
+// adjust threshold value to kmer size
 float adjust_threshold(float c_old, uint8_t k_old, uint8_t k_new ){
     float c_new = c_old * float( std::pow(k_new - 2 + 1,2) /  std::pow(k_old - 2 + 1,2));
     return(c_new);
+}
+
+// extract the second elements from a pair vector
+int_vector extract_second_from_pair(std::vector<std::pair<read_pos_t, read_pos_t> > pair_vector){
+    int_vector second_part;
+    second_part.reserve(pair_vector.size());
+    
+    for(auto el : pair_vector){
+        second_part.emplace_back(el.second);
+    }
+    return(second_part);
 }
 
 int_vector LIS(int_vector X){
@@ -83,6 +95,7 @@ int_vector LIS(int_vector X){
     return(S);
 }
 
+// return true if the sequence is considered "low complexity"
 inline  bool haveLowComplexity(DnaString & sequence, float threshold){
     // New version, using "DUST2" method
     // scanning 2-mers, squaring count, discard if over limit
@@ -125,37 +138,39 @@ void printReadNames(int currentReadId, read2pos_map_t& readIdMap , StringSet<Cha
     outputFile << "\n";
 }
 
-// Function used to print the read names associated to current read, if the length of the LIS of mapped pos is high enough 
-void printReadNamesWithLIS(int currentReadId, read2pos_map_t& readIdMap , StringSet<CharString>& realIds ,std::ofstream &outputFile)
-{
+// // Function used to print the read names associated to current read, if the length of the LIS of mapped pos is high enough 
+// void printReadNamesWithLIS(int currentReadId, read2pos_map_t& readIdMap , StringSet<CharString>& realIds ,std::ofstream &outputFile)
+// {
     
-    outputFile << realIds[currentReadId];
-    for(auto it=readIdMap.begin(); it != readIdMap.end(); ++it){
+//     outputFile << realIds[currentReadId];
+//     for(auto it=readIdMap.begin(); it != readIdMap.end(); ++it){
 
-        int id =  it->first;
-        // Avoid printing the same id
-        if(id != currentReadId){
-            outputFile << "\t" << realIds[id];
-            outputFile << "\t" << LIS(it->second).size();
-        }
-    }
+//         int id =  it->first;
+//         // Avoid printing the same id
+//         if(id != currentReadId){
+//             outputFile << "\t" << realIds[id];
+//             outputFile << "\t" << LIS(it->second).size();
+//         }
+//     }
 
-    outputFile << "\n";
-}
+//     outputFile << "\n";
+// }
 
 
-// Function used to print all the positions for associated reads
+// Function used to print all the positions for associated reads. output is edge position matrix (epm)
 void printReadNamesAndPos(int currentReadId, read2pos_map_t& readIdMap , StringSet<CharString>& realIds ,std::ofstream &outputFile)
 {
     
     for(auto it=readIdMap.begin(); it != readIdMap.end(); ++it){
         int id =  it->first;
+        
         // Avoid printing the same id
         if(id != currentReadId){
             outputFile << realIds[currentReadId];
             outputFile << "\t" << realIds[id];
             for(auto pos: it->second){
-                outputFile << "\t" << pos;
+                outputFile << "\t" << pos.first << "," << pos.second;
+                
             }
             outputFile << "\n";
         }
@@ -218,6 +233,11 @@ void approxCount(const std::string& filename, const std::string & indexFile, con
     std::set<read_id_t> stopSearch;
     //unsigned searchCount[nb_thread]={0};
     
+    unsigned nb_direct_ressearch = 0;
+    unsigned nb_reverse_ressearch = 0;
+    unsigned collisions = 0;
+    unsigned total_kmer = 0;
+    unsigned lc_kmer = 0;
     omp_set_num_threads(nb_thread);
     #pragma omp parallel  shared(ids, seqs, treshold, rc, stopSearch, lc, sampling, index)
     {
@@ -227,8 +247,9 @@ void approxCount(const std::string& filename, const std::string & indexFile, con
         read2pos_map_t keptId;
         std::unordered_map<unsigned, bool> processedKmer;
 
-        
-
+        unsigned current_pos;
+        unsigned last_pos= 1;
+        std::map<uint16_t, unsigned> last_read_pos;
         auto delegateParallel = [&](auto & iter, const DnaString & needle, int errors)// __attribute__((noinline))
         {
             for (auto occ : getOccurrences(iter)){
@@ -236,10 +257,11 @@ void approxCount(const std::string& filename, const std::string & indexFile, con
                 // and testing if the occurence is on one read only
                 // (not between two reads)
                 int readId= getValueI1(occ);
-                read_pos_t readPos =  getValueI2(occ); 
-                #pragma omp critical
-                if(std::find(results[direction][readId].begin(), results[direction][readId].end(), readPos ) == results[direction][readId].end() ){
-                   results[direction][readId].push_back(readPos);
+                read_pos_t readPos =  getValueI2(occ);
+                std::pair<read_pos_t,read_pos_t> current_pair(current_pos, readPos);
+                if(std::find(results[direction][readId].begin(), results[direction][readId].end(), current_pair ) == results[direction][readId].end() ){
+                    #pragma omp critical
+                    results[direction][readId].push_back(  make_pair(current_pos, readPos) );
                 }
             }
         };
@@ -265,10 +287,10 @@ void approxCount(const std::string& filename, const std::string & indexFile, con
                 processedKmer.clear();
                 DnaString readSequence = seqs[r];
                 // going through the read using K size window
-                for( int i = 0; i < length(readSequence) - k + 1; i+= bloc_size ){
+                for( current_pos = 0; current_pos < length(readSequence) - k + 1; current_pos += bloc_size ){
                     
-                    DnaString km = infix(readSequence, i, i+k);
-                    
+                    DnaString km = infix(readSequence, current_pos, current_pos + k);
+                    total_kmer += 1;
                     // hashing kmer to find out if we searched it before.
                     unsigned kmHash = dna2int(km);
                     if(not processedKmer[kmHash]){
@@ -278,19 +300,30 @@ void approxCount(const std::string& filename, const std::string & indexFile, con
                             // Forward strand ressearch
                             direction = 0;
                             find<0, NB_ERR>(delegateParallel, index, km , EditDistance() );
-                            
+                            #pragma omp critical
+                            nb_direct_ressearch += 1;
                             // Reverse complement
                             if(rc){
                                 // ressearching using reverse complement k-mer too
                                 reverseComplement(km);
                                 direction = 1;
                                 find<0, NB_ERR>(delegateParallel, index, km , EditDistance() );
-                                
+                                #pragma omp critical
+                                nb_reverse_ressearch += 1;
                                 // #pragma omp critical
                                 // {searchCount[omp_get_thread_num()]++;}
                             }
                         }
+                        else{
+                            #pragma omp critical
+                            lc_kmer += 1;
+                        }
                     }
+                    else{
+                        #pragma omp critical
+                        collisions += 1;
+                    }
+                    //last_pos = current_pos;
                 }
                 
                 
@@ -298,7 +331,7 @@ void approxCount(const std::string& filename, const std::string & indexFile, con
                 // checking number of matches in forward
                 for(auto it = results[0].begin(); it != results[0].end(); ++it ){
                     // looking for the longet streak of kmers that are colinear to our read.
-                    if(LIS(it->second).size() >= treshold ){
+                    if(LIS( extract_second_from_pair(it->second) ).size() >= treshold ){
                         keptId[it->first] = it->second;
                         // if read id is associated, do not use it again
                         #pragma omp critical
@@ -308,7 +341,8 @@ void approxCount(const std::string& filename, const std::string & indexFile, con
 
                 // exporting
                 #pragma omp critical
-                printReadNamesWithLIS(r,keptId,ids,outputFile);
+                //printReadNamesWithLIS(r,keptId,ids,outputFile);
+                printReadNamesAndPos(r,keptId,ids,outputFile);
 
                 // and reverse if wanted
                 if(rc){
@@ -316,7 +350,7 @@ void approxCount(const std::string& filename, const std::string & indexFile, con
                     
                     for(auto it = results[1].begin(); it != results[1].end(); ++it ){
                         // Reversing the results, otherwise LIS won't really make sens.
-                        int_vector reversed = it->second;
+                        int_vector reversed = extract_second_from_pair(it->second);
                         std::reverse(reversed.begin(), reversed.end());
                         if(LIS(reversed).size() >= treshold ){
                             keptId[it->first] = it->second;
@@ -326,9 +360,11 @@ void approxCount(const std::string& filename, const std::string & indexFile, con
                         }
                     }
                     #pragma omp critical
-                    printReadNamesWithLIS(r,keptId,ids,outputFile);
+                    //printReadNamesWithLIS(r,keptId,ids,outputFile);
+                    printReadNamesAndPos(r,keptId,ids,outputFile);
                 }
                 keptId.clear();
+                last_read_pos.clear();
            }
         }
     }
@@ -336,7 +372,15 @@ void approxCount(const std::string& filename, const std::string & indexFile, con
     if(v>=1){
         print("DONE");
     }
-        
+    if(v>=2){
+        std::cout << "Total number of kmer searched: " << total_kmer << std::endl;
+        std::cout << "Number of collisions: " << collisions;
+        std::cout << " ("  << collisions*100/total_kmer << "%)"     << std::endl;
+        std::cout << "Number of discarded kmer (lc): " << lc_kmer;
+        std::cout << " ("  << lc_kmer*100/total_kmer << "%)"     << std::endl;
+        std::cout << "Direct  researchs: " << nb_direct_ressearch  << std::endl;
+        std::cout << "Reverse researchs: " << nb_reverse_ressearch << std::endl;
+    }     
 }
 
 
