@@ -17,7 +17,7 @@ using namespace seqan;
 // -------------------------- Defining common types ---------------------------------------------------------
 
 // Index parameters, those are the default ones. // Maybe i should convert this typedef to using too...
-typedef FastFMIndexConfig<void, size_t, 1, 0> TFastConfig;
+typedef FastFMIndexConfig<void, size_t, 2, 0> TFastConfig;
 
 
 // Fasta related types
@@ -35,7 +35,7 @@ using pos_pair_vector_t = std::vector<read_pos_pair_t>; //vector of position pai
 
 
 // Index type, bidirectionnal FM-Index here.
-using index_t = Index<StringSet<DnaString>, BidirectionalIndex<FMIndex<void,TFastConfig> > >;
+using index_t = Index<seq_set_t, BidirectionalIndex<FMIndex<void,TFastConfig> > >;
 
 // Result storing type. Associate a read to a vector of read position pair.
 using read2pos_map_t = std::map<read_id_t, pos_pair_vector_t >;
@@ -200,7 +200,7 @@ unsigned array_sum(TIterable int_array){
 
 //-------------- EXPORT FUNCTION --------------
 
-void export_read_result( read2pos_map_t results, read_id_t current_read_id, unsigned nk, bool reverse, const StringSet<CharString> & realIds, std::ofstream & output_file){
+void export_read_result( read2pos_map_t results, read_id_t current_read_id, unsigned nk, bool reverse, const seq_id_set_t & realIds,  const seq_set_t & sequences,  std::ofstream & output_file){
     
     for(auto it=results.begin(); it != results.end(); ++it){
         
@@ -208,7 +208,9 @@ void export_read_result( read2pos_map_t results, read_id_t current_read_id, unsi
         // Avoid printing the same id, and LIS that are too short
         if(it->first != current_read_id and it->second.size() >= nk ){
             output_file << realIds[current_read_id];
+            output_file << "\t" << length(sequences[current_read_id]);
             output_file << "\t" << realIds[it->first];
+            output_file << "\t" << length(sequences[it->first]);
             output_file << "\t" << reverse;
             for(auto pos: it->second){
                 output_file << "\t" << pos.first << "," << pos.second;
@@ -261,7 +263,7 @@ void create_index(std::string index_file, index_t & index, uint8_t v){
 
 
 //--------------APPROX RESSEARCH--------------
-void approxCount(const StringSet<CharString> & ids, const StringSet<DnaString>  & sequences, index_t & index, std::ofstream & output_file, uint8_t k, uint8_t ks, uint8_t nk ,const uint8_t nb_thread, double lc, bool rc, bool sampling, uint8_t v){
+void approxCount(const seq_id_set_t & ids, const seq_set_t  & sequences, index_t & index, std::ofstream & output_file, uint8_t k, uint8_t ks, uint8_t nk ,const uint8_t nb_thread, double lc, bool rc, bool sampling, uint8_t v){
 
     const unsigned NB_ERR = 1;
 
@@ -342,7 +344,7 @@ void approxCount(const StringSet<CharString> & ids, const StringSet<DnaString>  
         for(read_id_t r=0; r<nb_read; r++)
         {
             // Progress tracking, if file is large enough.
-            if(v>=2 and nb_read>=100 and (r+1) %(nb_read/100) == 0){
+            if(v>=2 and nb_read>=100 and (r) %(nb_read/100) == 0){
                 print( std::to_string(round(float(r+1)/nb_read*100)) + "%" );
                 print( r );
             }
@@ -451,8 +453,8 @@ void approxCount(const StringSet<CharString> & ids, const StringSet<DnaString>  
                 #pragma omp critical
                 {
                     // export results :  map, read id, threshold, reverse?, id list, output stream
-                    export_read_result(direct_pos,  r, nk, false, ids, output_file );
-                    export_read_result(reverse_pos, r, nk, true,  ids, output_file );
+                    export_read_result(direct_pos,  r, nk, false, ids, sequences, output_file );
+                    export_read_result(reverse_pos, r, nk, true,  ids, sequences, output_file );
 
                 }
                 
