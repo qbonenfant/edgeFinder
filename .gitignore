@@ -1,3 +1,4 @@
 *.fasta
 *.edges
 edgeFind
+*.pyc
