@@ -56,22 +56,22 @@ void print(TPrintType text)
 }
 
 // Extract the second elements from a pair vector
-pos_vector_t extract_second_from_pair(pos_pair_vector_t pos_pair_vector_t){
+pos_vector_t extract_second_from_pair(pos_pair_vector_t pos_pair_vector){
     pos_vector_t second_part;
-    second_part.reserve(pos_pair_vector_t.size());
+    second_part.reserve(pos_pair_vector.size());
     
-    for(auto el : pos_pair_vector_t){
+    for(auto el : pos_pair_vector){
         second_part.emplace_back(el.second);
     }
     return(second_part);
 }
 
 // Extract the first elements from a pair vector
-pos_vector_t extract_first_from_pair(pos_pair_vector_t pos_pair_vector_t){
+pos_vector_t extract_first_from_pair(pos_pair_vector_t pos_pair_vector){
     pos_vector_t second_part;
-    second_part.reserve(pos_pair_vector_t.size());
+    second_part.reserve(pos_pair_vector.size());
     
-    for(auto el : pos_pair_vector_t){
+    for(auto el : pos_pair_vector){
         second_part.emplace_back(el.first);
     }
     return(second_part);

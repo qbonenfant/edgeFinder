@@ -1,11 +1,122 @@
-#coding=utf-8
+# coding=utf-8
 
 # import sys
 import svgwrite
+from collections import defaultdict as dd
 
-    ### CONSTANTS
 
-    ## Margins
+class lane():
+
+    def __init__(self, drw, read_name, ori, blocks, lane_nb, graph_offset=100, display_type="blocks", height=14, field_sep=5, l_margin=5, is_ref = False):
+
+        # read info
+        self.drawing = drw
+        self.read_name = read_name
+        self.orientation = "left" if ori == "1" else "right"
+        self.blocks = blocks
+
+        # display info
+        self.lane_nb = lane_nb
+        self.display_type = display_type
+        self.font_size = drw.font_size
+        self.height = max(height, drw.char_height + 2)
+
+        self.y = drw.origin[1] + drw.SPACER + \
+            drw.GRADSIZE + lane_nb * (self.height + drw.SPACER)
+
+        self.l_margin = l_margin
+        self.graph_offset = graph_offset
+        self.line_col = drw.BORDER_BLUE if ori == "0" else drw.BORDER_RED
+        self.color = drw.BOX_BLUE if ori == "0" else drw.BOX_RED
+        if(is_ref):
+            self.line_col = drw.BORDER_GREEN
+            self.color = drw.BOX_GREEN
+        self.pileup = dd(int)
+
+    def compute_blocks(self):
+        for block in self.blocks:
+
+            # Forward
+            if(self.orientation == "right"):
+                start_b = block[0]
+                end_b = block[-1]
+            # Reverse
+            else:
+                start_b = block[-1]
+                end_b = block[0]
+            # Drawing the box
+            self.drawing.draw_box(
+                (self.drawing.origin[0] + start_b[0], self.y),
+                abs(end_b[0] - start_b[0]),
+                self.height,
+                line_color=self.line_col,
+                color=self.color,
+                direction=self.orientation,
+                block_start=start_b[1],
+                block_end=end_b[1]
+            )
+
+            # computing position data for this lane
+            for pu in range(start_b[0], end_b[0] + 1):
+                self.pileup[pu] += 1
+
+    def compute_dash(self):
+        for b in self.blocks:
+            # Drawing the dashs
+            self.drawing.draw_dash(
+                (self.drawing.origin[0] + b[0], self.y),
+                self.height,
+                line_color=self.line_col)
+            self.pileup[b[0]] += 1
+
+    def print_name(self):
+
+        self.drawing.draw_text((self.drawing.LEFT_MARGIN,
+                                self.y + self.height - 1),
+                               self.read_name,
+                               text_col=self.line_col)
+
+    def print_lane(self):
+
+        # drawing background rect:
+        col = "lightgrey" if self.lane_nb % 2 == 0 else "white"
+        self.drawing.dwg.add(self.drawing.dwg.rect(insert=(0, self.y),
+                                                   size=('100%', self.height),
+                                                   stroke=col,
+                                                   fill=col))
+
+        self.print_name()
+        if("blocks" in self.display_type):
+            self.compute_blocks()
+        elif("dash" in self.display_type):
+            self.compute_dash()
+        else:
+            raise NotImplementedError("This display method does not exists")
+            print(self.display_type)
+
+    # Comparisons
+    def __lt__(self, other):
+        return (self.direction <= other.direction and self.name < other.name)
+
+    def __le__(self, other):
+        return (self.direction <= other.direction and self.name <= other.name)
+
+    def __eq__(self, other):
+        return (self.direction == other.direction and self.name == other.name)
+
+    def __ne__(self, other):
+        return (self.direction != other.direction and self.name != other.name)
+
+    def __gt__(self, other):
+        return (self.direction >= other.direction and self.name > other.name)
+
+    def __ge__(self, other):
+        return (self.direction >= other.direction and self.name >= other.name)
+
+
+class draw_map():
+
+    # Margins
     # Bottom margin
     BOTTOM_MARGIN = 10
     # Top margin
@@ -15,7 +126,7 @@ import svgwrite
     # Right margin
     RIGHT_MARGIN = 30
 
-    ## Axis
+    # Axis
     # Abcisse height from bottom margin
     ABSCISSE = 20
     # Ordonee position from the left margin
@@ -25,253 +136,176 @@ import svgwrite
     # Size of the graduation
     GRADSIZE = 4
 
-    ## Mapping boxes dimensions
+    # Mapping boxes dimensions
     # Height of the boxes
-    BOX_HEIGHT = 14 
+    BOX_HEIGHT = 14
     # Space between boxes
-    SPACER = 2
+    SPACER = 4
 
-    ## Colors
+    # Colors
     # BLUE
-    BOX_BLUE    = svgwrite.rgb(20, 20,100, '%')
+    BOX_BLUE = svgwrite.rgb(20, 20, 100, '%')
     BORDER_BLUE = svgwrite.rgb(10, 10, 66, '%')
     # RED
-    BOX_RED    = svgwrite.rgb(100, 20,20, '%')
+    BOX_RED = svgwrite.rgb(100, 20, 20, '%')
     BORDER_RED = svgwrite.rgb(66, 10, 10, '%')
     # GREEN
-    BOX_GREEN    = svgwrite.rgb(20, 100 ,20, '%')
+    BOX_GREEN = svgwrite.rgb(20, 100, 20, '%')
     BORDER_GREEN = svgwrite.rgb(10, 66, 10, '%')
 
+    def __init__(self, name, font_size=10, font_color="black", line_width=2, tick_spacing=25, tick_height=4, box_spacing=2, box_height=15):
 
-
-class lane():
-
-    def __init__(self, read_name, orientation, display_type = "block", blocks, font_size = 10, height = 14, name_space, field_sep = 5 , l_margin = 5 ):
-
-        # read info
-        self.read_name = read_name
-        self.orientation = orientation
-        self.blocks = blocks
-
-        # display info
-        self.display_type   = display_type
-        self.font_size      = font_size
-        self.height         = max(height,font_size)
-        self.name_space     = name_space
-        self.field_sep      = field_sep
-        self.l_margin       = l_margin 
-        self.graph_offset   = l_margin + name_space + field_sep
-        
-        # sgwrite group
-        self.group = svgwrite.g(id= read_name, font_size = font_size)
-        
-
-
-    def get_group(self):
-        return(self.group)
-
-    def compute_blocks(self):
-
-        pileup = {}
-        for block in self.blocks:
-            
-            # Forward
-            if(self.orientation == "0"):        
-                start_b = block[0]
-                end_b   = block[-1]
-            # Reverse
-            else:
-                start_b = block[-1]
-                end_b   = block[0]
-
-            .draw_box( (offset + start_b[0], height),
-                abs(end_b[0]-start_b[0]) ,
-                dwg.BOX_HEIGHT,
-                line_color= line_col,
-                color = col,
-                direction = direction,
-                block_start = start_b[1],
-                block_end = end_b[1]
-                )
-
-            # computing position data for this lane
-            for pu in range(start_b[0],end_b[0]+1):
-                pileup[pu]+=1
-
-        return(pileup)
-
-
-    def compute_dash(self):
-        raise NotImplementedError("Not implemented yet")
-
-
-
-class draw_map():
-
-    def __init__(self, name, font_size = 10, font_color = "black", line_width = 2, tick_spacing = 25, tick_height = 4, box_spacing = 2, box_height = 15):
-        
-        self.dwg = svgwrite.Drawing( name+".svg" )
+        self.dwg = svgwrite.Drawing(name + ".svg")
         self.name = name
-        self.font_size  = font_size
+        self.font_size = font_size
         self.font_color = font_color
         self.line_width = line_width
         self.tick_spacing = tick_spacing
         self.tick_height = tick_height
         self.box_spacing = box_spacing
-        self.box_height  = box_height
-        self.origin = (0,0)
+        self.box_height = box_height
+        self.origin = (0, 0)
+        self.h_factor = float(font_size / 10)
+        self.char_width, self.char_height = self.textwidth()
 
-class lane():
-
-    def __init__()
-
+    def textwidth(self):
+        text = "A"
+        try:
+            import cairo
+        except Exception:
+            s = len(text) * self.font_size
+            return (s, s)
+        surface = cairo.SVGSurface('undefined.svg', 1280, 200)
+        cr = cairo.Context(surface)
+        cr.select_font_face('monospace', cairo.FONT_SLANT_NORMAL,
+                            cairo.FONT_WEIGHT_BOLD)
+        cr.set_font_size(self.font_size)
+        xb, yb, width, height, xa, ya = cr.text_extents(text)
+        return (width + 4, height + 4)
 
     def get_draw(self):
         return(self.dwg)
 
-
-    def draw_x_axis(self, length, spacing = 25 , height = 4 ):
+    def draw_x_axis(self, length, spacing=50, height=4):
 
         dwg = self.dwg
         # number of ticks
-        nb_ticks = length//spacing
+        nb_ticks = length // spacing
+
+        # adjusting to font size
+        length = length * self.h_factor
+        h_spacing = spacing * self.h_factor
         # adding group for axis
         hline = dwg.add(dwg.g(id='x_axis', stroke='black'))
         # drawing axis line
-        hline.add( dwg.line( start = self.origin, end = (1 + self.origin[0] + length, self.origin[1] ), stroke = "black", stroke_width = self.line_width ))
+        hline.add(dwg.line(start=((self.origin[0] - 1), self.origin[1]),
+                           end=(1 + self.origin[0] + length, self.origin[1]),
+                           stroke="black",
+                           stroke_width=self.line_width))
 
-        for y in range(nb_ticks):
-            hline.add(dwg.line(start=( self.origin[0]+ (1+y)*spacing, self.origin[1] ),
-                               end  =( self.origin[0]+ (1+y)*spacing, self.origin[1]-height),
-                               stroke_width= self.line_width ))
+        for y in range(nb_ticks + 1):
+            hline.add(dwg.line(start=(self.origin[0] + (y) * h_spacing,
+                                      self.origin[1]),
+                               end=(self.origin[0] + (y) *
+                                    h_spacing, self.origin[1] + height),
+                               stroke_width=self.line_width))
+            txt = str(y * spacing)
+            txt_len = self.char_width * len(txt)
+            hline.add(dwg.text(txt,
+                               insert=(self.origin[0] - txt_len + y * h_spacing,
+                                       self.origin[1] - 2),
+                               stroke=self.font_color,
+                               font_size=str(self.font_size) + 'px',
+                               font_family="monospace"))
 
-            hline.add(dwg.text( str((1+y)*spacing),
-                                insert=( -self.font_size + self.origin[0]+ (1+y)*spacing, self.origin[1] + self.font_size),
-                                stroke = self.font_color,
-                                font_size  = str(self.font_size)+'px',
-                                font_family="Arial"))
-
-
-    def set_size(self, width, height):
-        self.dwg.size=( width, height )
-
-
-    def set_bg(self,color = "white"):
+    def set_bg(self, color="white"):
         # background color
-        self.dwg.add(self.dwg.rect(insert=(0, 0), size=('100%', '100%'), rx=None, ry=None, fill= color ))
+        self.dwg.add(self.dwg.rect(insert=(0, 0), size=(
+            '100%', '100%'), rx=None, ry=None, fill=color))
 
-
-    def set_origin(self,coordinates):
+    def set_origin(self, coordinates):
         self.origin = coordinates
-
 
     def draw_y_axis(self, length):
 
         dwg = self.dwg
 
-        vline = dwg.add(dwg.g(id='y_axis', stroke='black'))    
+        vline = dwg.add(dwg.g(id='y_axis', stroke='black'))
         # drawing axis line
-        vline.add( dwg.line( start = (self.origin[0],self.origin[1]+1), end = (self.origin[0],self.origin[1]-length), stroke = "black", stroke_width= self.line_width ))
+        vline.add(dwg.line(start=(self.origin[0], self.origin[1] + 1),
+                           end=(self.origin[0], self.origin[1] - length),
+                           stroke="black",
+                           stroke_width=self.line_width))
 
+    def draw_text(self, pos, text, text_col="black", text_font='monospace'):
 
-    def draw_text(self, pos, text, text_col = "black", text_font = 'Arial' ):
-        
-        self.dwg.add( self.dwg.text( text,
-                                insert= pos,
-                                stroke = text_col,
-                                font_size  = str(self.font_size)+'px',
-                                font_family= text_font))
+        self.dwg.add(self.dwg.text(text,
+                                   insert=pos,
+                                   stroke=text_col,
+                                   font_size=str(self.font_size) + 'px',
+                                   font_family=text_font))
 
-
-    def draw_dash(self, pos, height, line_color = "black"):
-
-        dwg = self.dwg
-        # drawing main box
-        dwg.add(dwg.line(start= pos,
-                         end  = (pos[0],pos[1] + height),
-                         stroke_width= 1,
-                         stroke = line_color))
-
-
-
-    def draw_box(self, pos, width, height, direction = "right", line_color = "black", color = "blue", block_start = None, block_end = None, text = None):
+    def draw_dash(self, pos, height, line_color="black"):
 
         dwg = self.dwg
+        pos = (self.origin[0] + (pos[0] - self.origin[0]) *
+               self.h_factor, pos[1])
         # drawing main box
-        dwg.add(dwg.rect(insert= pos,
-                         size  = (width,height),
-                         stroke_width= 1,
-                         stroke = line_color,
-                         fill= color ))
-        
+        dwg.add(dwg.line(start=pos,
+                         end=(pos[0], pos[1] + height),
+                         stroke_width=max(1, self.h_factor),
+                         stroke=line_color))
+
+    def draw_box(self, pos, width, height, direction="", line_color=BORDER_GREEN, color=BOX_GREEN, block_start=None, block_end=None, text=None):
+
+        width = width * self.h_factor
+        pos = (self.origin[0] + (pos[0] - self.origin[0]) *
+               self.h_factor, pos[1])
+        dwg = self.dwg
+        # drawing main box
+        dwg.add(dwg.rect(insert=pos,
+                         size=(width, height),
+                         stroke_width=1,
+                         stroke=line_color,
+                         fill=color))
+
         # add an arrow inside the box
-        if(direction):
-            arrow_pos = ( pos[0] + (width // 2) , pos[1] + (height//2) )
-            self.draw_arrow( arrow_pos , direction = direction, color = line_color )
+        if(direction and width >= self.char_width * 2  ):
+            arrow_pos = (pos[0] + (width // 2), pos[1] + height)
+            self.draw_arrow(arrow_pos, direction=direction, color=line_color)
 
+        total_txt = 0
+        total_txt += len(str(block_start)) if block_start else 0
+        total_txt += len(str(block_end)) if block_end else 0
 
+        if(self.char_width * (total_txt + 3) <= width):
+            # add the relative positions of the reads
+            if(block_start is not None):
+                dwg.add(dwg.text(str(block_start),
+                                 insert=(pos[0] + 2, pos[1] + height - 1),
+                                 stroke=line_color,
+                                 font_size=str(self.font_size) + 'px',
+                                 font_family="monospace"))
+            if(block_end is not None):
+                dwg.add(dwg.text(str(block_end),
+                                 insert=(pos[0] + width - len(str(block_end)) *
+                                         (self.char_width-2),
+                                         pos[1] + height - 1),
+                                 stroke=line_color,
+                                 font_size=str(self.font_size) + 'px',
+                                 font_family="monospace"))
 
-        # add the relative positions of the reads
-        if(block_start):
-            dwg.add( dwg.text(str(block_start),
-                     insert=( pos[0] + 2,  pos[1] + self.font_size ),
-                     stroke = line_color,
-                     font_size  = str(self.font_size)+'px',
-                     font_family="Arial"))
-        if(block_end):
-            dwg.add( dwg.text(str(block_end),
-                     insert=( pos[0] + width - len(str(block_end)) * (self.font_size - 3 ) ,  pos[1] + self.font_size ),
-                     stroke = line_color,
-                     font_size  = str(self.font_size)+'px',
-                     font_family="Arial"))
-
-    def draw_arrow(self, pos, offset = 5 ,direction = "right", color = "blue"):
+    def draw_arrow(self, pos, direction="right", color="blue"):
 
         dwg = self.dwg
 
-        x_offset = -offset if direction == "right" else offset
+        char = ">" if direction == "right" else "<"
 
-        dwg.add(dwg.line(start = pos ,
-                         end   =( pos[0] + x_offset, pos[1] + x_offset ),
-                         stroke_width= self.line_width,
-                         stroke = color ))
-
-        dwg.add(dwg.line(start= pos ,
-                         end  =( pos[0] + x_offset, pos[1] - x_offset ),
-                         stroke_width= self.line_width,
-                         stroke = color ))
+        dwg.add(dwg.text(char,
+                         insert=pos,
+                         stroke=color,
+                         font_size=str(self.font_size) + 'px',
+                         font_family="monospace"))
 
     def save(self):
         self.dwg.save()
-
-
-# Creating draw element
-# dwg = svgwrite.Drawing('test.svg', size=(500,500))
-
-
-# mydwg= draw_map("test")
-
-# mydwg.set_size(2000,500)
-# mydwg.set_bg("white")
-# ori = (50,250)
-# mydwg.set_origin(ori)
-
-# mydwg.draw_x_axis(2000,50,5)
-# mydwg.draw_y_axis(200)
-
-
-# # Ref box
-# mydwg.draw_box((60,50),1800,14, line_color=BORDER_GREEN, color = BOX_GREEN, direction = "")
-# # Blue box
-# mydwg.draw_box((55,200),100,14, line_color=BORDER_BLUE, color = BOX_BLUE, direction = "right")
-# # Red bow
-# mydwg.draw_box((75,150), 1200,14, line_color=BORDER_RED, color = BOX_RED, direction = "left")
-# x,y = 60, 100
-# space = 10
-# for i in range(20):
-#     mydwg.draw_dash( (x + i* space, y ), 14 , line_color = BORDER_BLUE)
-
-
-# mydwg.save()
-
-# print("OK")
