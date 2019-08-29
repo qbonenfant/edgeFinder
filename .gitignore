@@ -1,4 +1,4 @@
 *.fasta
 *.edges
-edgeFind
+edgeFinder
 *.pyc

@@ -120,7 +120,7 @@ def run(lines, fasta, mdr, mc):
             read2 = data[2]
             l2 = int(data[3])
             # orientation = data[4]
-            pos = [tuple(int(a) for a in el.split(",")) for el in data[5:]]
+            pos = [tuple(int(a) for a in el.split(",")) for el in data[6:]]
 
             # checking if reads are the same isoforms or not.
             ref_gene = read1.split("_")[-1]
