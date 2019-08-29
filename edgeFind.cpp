@@ -6,6 +6,8 @@
 #include <seqan/arg_parse.h>
 
 #include <iostream>
+#include <algorithm> 
+#include <math.h>
 #include <cstdlib>
 #include <fstream>
 #include <unordered_set>
@@ -64,6 +66,16 @@ pos_vector_t extract_second_from_pair(pos_pair_vector_t pos_pair_vector){
         second_part.emplace_back(el.second);
     }
     return(second_part);
+}
+
+// go through an associative array and build up the sum of the values, regardless of their key
+template<typename TIterableNumbers>
+inline unsigned map_sum(TIterableNumbers number_list){
+    unsigned total;
+    for(auto e: number_list){
+        total += e.second;
+    }
+    return(total);
 }
 
 // Extract the first elements from a pair vector
@@ -170,6 +182,66 @@ pos_pair_vector_t LIS_Pair(pos_pair_vector_t pv){
     return(S);
 }
 
+// Try to tell if two reads are close enough to be isoforms or not
+// This step could (should ?) be integrated directely during seeds processing,
+// but is kept separated for modularity raisons.
+bool is_iso(pos_pair_vector_t & pos_list,  unsigned l1, unsigned l2, uint8_t k=16, uint8_t ks=3, float max_diff_rate=1.30, float min_cover= 0.75){
+
+    std::map<read_pos_t, uint8_t> coverage_ref;
+    std::map<read_pos_t, uint8_t> coverage_tgt;
+
+    read_pos_t last_ref = pos_list[0].first;
+    read_pos_t last_tgt = pos_list[0].second;
+
+    for(auto p: pos_list){
+        
+        // computing coverage and testing seed coherence
+        unsigned dif_ref;
+        unsigned dif_tgt;
+        unsigned biggest_dif;
+        unsigned smallest_dif;
+        unsigned max_dif;
+        unsigned relative_dif;
+
+        // coverage is not just on kmer start, but on all it's length
+        for(int j=0; j< k; ++j){
+            coverage_ref[p.first + j] = 1;
+            coverage_tgt[p.second + j] = 1;
+        }
+        // how much did we advanced on reference and target ?
+        dif_ref = std::abs(p.first - last_ref);
+        dif_tgt = std::abs(p.second - last_tgt);
+
+        // find the biggest gap
+        biggest_dif = std::max(dif_ref, dif_tgt);
+        // and smallest
+        smallest_dif = std::min(dif_ref, dif_tgt);
+
+        // maximum allowed difference
+        max_dif= ks;
+        if(smallest_dif != 0){
+            max_dif = unsigned(std::max(unsigned(smallest_dif * max_diff_rate), max_dif));
+        }
+
+        // offset difference  between the two read
+        relative_dif = std::abs(dif_ref - dif_tgt);
+
+        // If we go over limit, just say it is not an isoform, for we can not be sure.
+        if(biggest_dif > max_dif){
+            return(false);
+        }
+    }
+    // If seeds seem coherent, check if cover is high enough
+    float reference_cover = map_sum(coverage_ref) / l1;
+    float target_cover    = map_sum(coverage_tgt) / l2;
+    if(reference_cover < min_cover or target_cover < min_cover){
+        return(false);
+    }
+  
+    return(true);
+}
+
+
 // Converts DnaString to int. sequence longer than 32 will cause overflow.
 inline unsigned dna2int(DnaString seq){
     
@@ -198,23 +270,62 @@ unsigned array_sum(TIterable int_array){
     return(sum);
 }
 
+
+//-------------- SEED FILTERING ---------------
+
+pos_pair_vector_t filter_seeds(pos_pair_vector_t & results, unsigned allocated_size, uint8_t ks){
+    
+    pos_pair_vector_t filtered_results;
+
+    // Filtering redundant seeds.
+    // allocating at least the same size as the original result array
+    filtered_results.reserve(allocated_size);
+
+    // keeping previous positions in memory
+    unsigned last_first  = -1;
+    unsigned last_second =  0;
+
+    // for each seed occurences
+    for(auto pos: results){
+        // If it is a different seed, keep it 
+        if( filtered_results.empty() or last_first != pos.first ){
+            filtered_results.emplace_back(pos);
+        }
+        // else check that the second position do is different
+        // by at least kmer skip size, minus the max error rate.
+        else if(abs(pos.second - last_second ) > ks - 2 ){
+            filtered_results.emplace_back(pos);
+        }
+        //updating last position
+        last_first  = pos.first;
+        last_second = pos.second;
+    }
+
+    return(filtered_results);
+}
+
+
 //-------------- EXPORT FUNCTION --------------
 
 void export_read_result( read2pos_map_t results, read_id_t current_read_id, unsigned nk, bool reverse, const seq_id_set_t & realIds,  const seq_set_t & sequences,  std::ofstream & output_file){
     
-    for(auto it=results.begin(); it != results.end(); ++it){
+    for( auto it=results.begin(); it != results.end(); ++it){
         
         
-        // Avoid printing the same id, and LIS that are too short
+        // Avoid printing the same id, and results that are too short
         if(it->first != current_read_id and it->second.size() >= nk ){
             output_file << realIds[current_read_id];
             output_file << "\t" << length(sequences[current_read_id]);
             output_file << "\t" << realIds[it->first];
             output_file << "\t" << length(sequences[it->first]);
             output_file << "\t" << reverse;
+
+            bool isoforms = is_iso(it->second, length(sequences[current_read_id]), length(sequences[it->first]), 1.25, 0.75);
+            output_file << "\t" << isoforms;
+
+            // Exporting seeds.
             for(auto pos: it->second){
-                output_file << "\t" << pos.first << "," << pos.second;
-                
+                    output_file << "\t" << pos.first << "," << pos.second;    
             }
             output_file << "\n";
         }
@@ -322,14 +433,22 @@ void approxCount(const seq_id_set_t & ids, const seq_set_t  & sequences, index_t
 
                 // Checking if the match is not redundant.
                 if(direction == 0){
-                    if(  direct_pos[readId].empty() or direct_pos[readId].back().first != current_pos ){
-                         direct_pos[readId].emplace_back(current_pos, readPos);
+                    if( direct_pos[readId].empty() or direct_pos[readId].back().first != current_pos ){
+                        direct_pos[readId].emplace_back(current_pos, readPos);
+                    }
+                    else if( abs(direct_pos[readId].back().second - readPos) > NB_ERR + 1 ){
+                        direct_pos[readId].emplace_back(current_pos, readPos);
                     }
                 }
+
                 else{
                     if( reverse_pos[readId].empty() or reverse_pos[readId].back().first != current_pos ){
-                         reverse_pos[readId].emplace_back(current_pos, readPos);
+                        reverse_pos[readId].emplace_back(current_pos, readPos);
                     }
+                    else if( abs(reverse_pos[readId].back().second - readPos) > NB_ERR + 1  ){
+                        reverse_pos[readId].emplace_back(current_pos, readPos);
+                    }
+                    
                 }
             }        
         
@@ -352,10 +471,10 @@ void approxCount(const seq_id_set_t & ids, const seq_set_t  & sequences, index_t
             // Checking read id is not already found, if sampling is activated
             if( not sampling  or processed_reads.find(r) == processed_reads.end() ){
                 
-                #pragma omp critical
-                {
-                    processed_reads;
-                }
+                // #pragma omp critical
+                // {
+                //     processed_reads;
+                // }
 
                 // cleaning result set
                 direct_pos.clear();
@@ -373,7 +492,6 @@ void approxCount(const seq_id_set_t & ids, const seq_set_t  & sequences, index_t
                 for( current_pos = 0; current_pos < length(readSequence) - k + 1; current_pos += ks ){
                     
                     DnaString km = infix(readSequence, current_pos, current_pos + k);
-                    
                     // Counting redundant kmer search. 
                     // hashing kmer to find out if we searched it before.
                     unsigned kmHash = dna2int(km);
@@ -417,7 +535,7 @@ void approxCount(const seq_id_set_t & ids, const seq_set_t  & sequences, index_t
                     }
                     
                 }
-                
+
                 // ##########################################################################################
                 // FILTERING ################################################################################
                 // ##########################################################################################
@@ -427,7 +545,8 @@ void approxCount(const seq_id_set_t & ids, const seq_set_t  & sequences, index_t
                 for(auto it = direct_pos.begin(); it != direct_pos.end(); ++it ){
                     // looking for the longet streak of kmers that are colinear to our read.
                     it->second = LIS_Pair(it->second);
-                    if( it->second.size() >= nk ){
+                    it->second = filter_seeds(it->second, it->second.size(), ks);
+                    if( it->second.size() >= nk  and is_iso(it->second, length(sequences[r]), length(sequences[it->first]), 1.25, 0.75)){
                         // if read id is associated, do not use it again
                         #pragma omp critical
                         processed_reads.insert(it->first);
@@ -438,10 +557,12 @@ void approxCount(const seq_id_set_t & ids, const seq_set_t  & sequences, index_t
                     for(auto it = reverse_pos.begin(); it != reverse_pos.end(); ++it ){
                         // Reversing the results, otherwise LIS won't really make sens.
                         std::reverse( it->second.begin(), it->second.end());
-                        it->second = LIS_Pair(it->second);
-
                         // Looking for the longet streak of kmers that are colinear to our read.
-                        if( it->second.size() >= nk ){
+                        it->second = LIS_Pair(it->second);
+                        // Filtering redundant seeds
+                        it->second = filter_seeds(it->second, it->second.size(), ks);
+
+                        if( it->second.size() >= nk  and is_iso(it->second, length(sequences[r]), length(sequences[it->first]), 1.25, 0.75)) {
                             // if read id is associated, do not use it again
                             #pragma omp critical
                             processed_reads.insert(it->first);
@@ -455,7 +576,6 @@ void approxCount(const seq_id_set_t & ids, const seq_set_t  & sequences, index_t
                     // export results :  map, read id, threshold, reverse?, id list, output stream
                     export_read_result(direct_pos,  r, nk, false, ids, sequences, output_file );
                     export_read_result(reverse_pos, r, nk, true,  ids, sequences, output_file );
-
                 }
                 
             }
@@ -562,12 +682,12 @@ int main(int argc, char const ** argv)
     std::string index_file = "";  // index prefix, if any                              
     unsigned nb_thread = 4;       // default number of thread (4)                      
     //unsigned nbErr = 2;         // default number of errors EDIT: CAN NOT BE ASSIGNED
-    unsigned v = 0;               // verobisty, default = 0                            
-    unsigned k = 30;              // kmerSize, default = 16                            
+    unsigned v = 1;               // verobisty, default = 1                            
+    unsigned k = 16;              // kmerSize, default = 16                            
     unsigned ks = 3;              // k-mer skip size, default = 3                      
-    unsigned nk= 3;               // Minimum common k-mer, default = 3                 
+    unsigned nk= 10;              // Minimum common k-mer, default = 10                 
     double   lc= 1.25;            // "dust2" low complexity threshold, default = 1.25  
-    bool rc =  true;              // Rev Comp research ? True by default               
+    bool     rc =  true;          // Rev Comp research ? True by default               
     bool sampling =  true;        // Sampling method ? True by default                 
     // --------------------------------------------------------------------------------
 

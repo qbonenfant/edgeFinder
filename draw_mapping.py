@@ -103,10 +103,10 @@ def complexity_score(kmer):
 def color_ramp(score, center, mx):
 
     # B = 100 * ((center - abs(center - score)) / center)
-    # B = 100 if score == mx else 0
-    R = 75 * (score / mx) # - 1.0 * B
-    V = 100 * ((mx - score) / mx) #  - 1.0 * B
-    return(rgb(R, V, 0, '%'))
+    B = 100 if score == mx else 0
+    R = 75 * (score / mx)  # - 1.0 * B
+    V = 100 * ((mx - score) / mx)  # - 1.0 * B
+    return(rgb(R, V, B, '%'))
 
 
 def complexity_legend(dwg, center, mx, height):
@@ -139,7 +139,7 @@ def complexity_legend(dwg, center, mx, height):
         dwg.draw_text((x_pos - dwg.char_width, y - 1), txt)
 
     # Description
-    msg = "LC_scale"
+    msg = "Complexity_scale"
     dwg.draw_text((x - dwg.char_width * (len(msg) + 1),
                    y),
                   msg)
@@ -147,11 +147,12 @@ def complexity_legend(dwg, center, mx, height):
 
 def compute_complexity_scale(dwg, pos, height, sequence, k):
     scale = []
-    center = 0.6    # center point for scale
+    center = 0.4    # center point for scale
     mx = center * 2  # max value
     y = pos[1]
     for i in range(len(sequence) - k + 1):
         score = min(complexity_score(sequence[i:i + k]), mx)
+        scale.append(complexity_score(sequence[i:i + k]))
         col = color_ramp(score, center, mx)
 
         x_pos = dwg.origin[0] + i
@@ -159,6 +160,7 @@ def compute_complexity_scale(dwg, pos, height, sequence, k):
         dwg.draw_dash((x_pos, y), height, line_color=col)
 
     complexity_legend(dwg, center, mx, height)
+    return(scale)
 
 
 def print_edges(ref, len_ref, mapping, output_folder="./", display_t="blocks", ref_seq="", k=16):
@@ -202,8 +204,9 @@ def print_edges(ref, len_ref, mapping, output_folder="./", display_t="blocks", r
     for l in lanes:
         l.print_lane()
 
-    # Printing complexity scale
-    compute_complexity_scale(dwg, dwg.origin, lanes[0].height, ref_seq, k)
+    if(ref_seq != ""):
+        # Printing and fetching complexity scale
+        cs = compute_complexity_scale(dwg, dwg.origin, lanes[0].height, ref_seq, k)
 
     # Drawing the axis
     dwg.draw_x_axis(len_ref)
@@ -214,6 +217,12 @@ def print_edges(ref, len_ref, mapping, output_folder="./", display_t="blocks", r
         x = dwg.origin[0] + k
         y = dwg.origin[1] - dwg.char_height - 1
         dwg.draw_dash((x, y), -v, line_color=dwg.BORDER_GREEN)
+
+    # # exporting complexity data
+    # ccc = open("./ccc/" + ref + "_complexity_cover_correl.csv", "w")
+    # for i in range(len(cs)):
+    #     pil = pl[i] if i in pl.keys() else 0
+    #     ccc.write(",".join([str(i), str(cs[i]), str(pil)]) + "\n")
 
     dwg.save()
 
