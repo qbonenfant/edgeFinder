@@ -2,7 +2,7 @@
 
 #define DEBUG_FLAG 0
 
-#if DEBUG_FLAG > 0
+#if DEBUG_FLAGx and not NDEBUG
 #define DEBUG(x) std::cout << x << "\n"
 #else
 #define DEBUG(x)

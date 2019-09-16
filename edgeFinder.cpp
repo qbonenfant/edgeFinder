@@ -15,8 +15,7 @@
 
 
 #define DEBUG_FLAG 0
-
-#if DEBUG_FLAG > 0
+#if DEBUG_FLAGx and not NDEBUG
 #define DEBUG(x) std::cout << x << "\n"
 #else
 #define DEBUG(x)
@@ -87,7 +86,6 @@ void split_edge(std::string edge_file, node_type_t node_types){
 
             // Getting the name of current target, sources are always repr
             if(line_fields.size() > 2){
-                print(line_fields.size());
                 std::string target = line_fields[2];
                 
                 // checking if edge is between isoforms or not
