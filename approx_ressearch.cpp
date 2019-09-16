@@ -48,7 +48,7 @@ void find_kmers(index_t & index, const seqan::DnaString & source_sequence, read2
 		            if(current_read != read_id){    
 		                // Checking if the match is not redundant.
 	                    if( pos_map[read_id].empty() or pos_map[read_id].back().first != current_pos or 
-	                    	std::abs(pos_map[read_id].back().second - read_pos) > NB_ERR + 1 ){
+	                    	std::abs(int64_t(pos_map[read_id].back().second) - read_pos) > NB_ERR + 1 ){
 	                        pos_map[read_id].emplace_back(current_pos, read_pos);
 	                    }
 		            }        
