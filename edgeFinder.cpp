@@ -4,7 +4,7 @@
 // STD C++ includes
 #include <iostream>
 #include <algorithm> 
-#include <math.h>
+#include <cmath>
 #include <cstdlib>
 #include <fstream>
 #include <unordered_set>
