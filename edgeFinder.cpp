@@ -76,9 +76,10 @@ void split_edge(std::string edge_file, node_type_t node_types){
     std::ifstream edge_file_stream(edge_file);
     std::ofstream repr_file(edge_file + "_repr");
     std::ofstream residual_file(edge_file + "_residual");
-
     std::vector<std::string> line_fields;
 
+    unsigned representant_lines = 0;
+    unsigned residual_lines = 0;
     if( edge_file_stream.is_open() and repr_file.is_open() and residual_file.is_open()){
         for( std::string line; getline( edge_file_stream, line );){
 
@@ -91,14 +92,17 @@ void split_edge(std::string edge_file, node_type_t node_types){
                 // checking if edge is between isoforms or not
                 if( node_types[target] ){
                     residual_file << line << "\n";
+                    residual_lines+=1;
                 }
                 // If not, export to repr
                 else{
                     repr_file << line << "\n";
+                    representant_lines +=1;
                 }
             }
 
         }
+        print("Exported " + std::to_string(residual_lines) + " residual edges and " + std::to_string(representant_lines) + " representant edges");
 
         edge_file_stream.close();
         repr_file.close();
@@ -370,6 +374,23 @@ int main(int argc, char const ** argv)
     // Closing output file
     output_file.close();
 
+    // counting number of redisudal nodes
+    unsigned residual_node_number = 0;
+    unsigned representant_node_number = 0;
+    for(auto node: node_types){
+        if(node.second){
+            residual_node_number++ ;
+        }
+        else{
+            representant_node_number++;
+        }
+    }
+    if(v>=1){
+        print("Number of residual nodes: " + std::to_string(residual_node_number));
+        print("Number of representant nodes: " + std::to_string(representant_node_number));
+        print("Total nodes: "+ std::to_string(residual_node_number + representant_node_number));
+        print("Residual node ratio: " + std::to_string( double(residual_node_number * 100 ) / (residual_node_number+ representant_node_number)) + "%" );
+    }
     // Splitting graph
     split_edge(output, node_types);
     
