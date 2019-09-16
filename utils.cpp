@@ -282,7 +282,7 @@ pos_pair_vector_t filter_seeds(pos_pair_vector_t & results, unsigned allocated_s
         }
         // else check that the second position do is different
         // by at least kmer skip size, minus the max error rate.
-        else if(abs(pos.second - last_second ) > ks - 2 ){
+        else if(std::abs(int64_t(pos.second) - last_second ) > ks - 2 ){
             filtered_results.emplace_back(pos);
         }
         //updating last position
