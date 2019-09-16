@@ -1,5 +1,13 @@
 #include "utils.h"
 
+#define DEBUG_FLAG 0
+
+#if DEBUG_FLAG > 0
+#define DEBUG(x) std::cout << x << "\n"
+#else
+#define DEBUG(x)
+#endif
+
 using namespace seqan;
 
 //-------------- UTILS FUNCTION --------------
@@ -19,6 +27,20 @@ void print(TPrintType text)
     const auto milis = std::chrono::duration <double, std::milli>(std::chrono::steady_clock::now() - boot_time).count();
     std::cout << "[" << milis << " ms]\t" << text << std::endl;
 }
+
+// Spliting strings on delimiter
+std::vector<std::string> split (const std::string & s) {
+    char delim = *"\t";
+    std::vector<std::string> result;
+    std::stringstream ss (s);
+    std::string item;
+
+    while (getline (ss, item, delim)) {
+        result.push_back (item);
+    }
+    return result;
+}
+
 
 //-------------- FASTA PARSING --------------
 void parse_fasta(std::string filename, fasta_pair & fasta, uint8_t v){
@@ -43,20 +65,29 @@ void parse_fasta(std::string filename, fasta_pair & fasta, uint8_t v){
 //-------------- INDEX CREATION --------------
 void create_index(std::string index_file, index_t & index, uint8_t v){
 
+    bool success;
     if(index_file != ""){
         if(v>=1)
             print("LOADING FROM INDEX FILE");
-        open(index,index_file.c_str());
+        success = open(index,index_file.c_str());
         
     }
     else{
         if(v>=1)
             print("NO INDEX FILE, CREATING FROM SCRATCH...");
-        indexCreate(index);
+
+        success = indexCreate(index);
     }
     
-    if(v>=1)
+    if(not success){
+        print("INVALID INDEX FILE: EITHER PATH IS WRONG OR INPUT FILE CAN'T BE INDEXED");
+        
+    }
+
+    else if(v>=1){
         print("DONE");
+    }
+    
 }
 //-------------- ############## --------------
 
@@ -75,10 +106,10 @@ pos_vector_t extract_second_from_pair(pos_pair_vector_t pos_pair_vector){
 
 // go through an associative array and build up the sum of the values, regardless of their key
 template<typename TIterableNumbers>
-inline unsigned map_sum(TIterableNumbers number_list){
-    unsigned total;
+inline unsigned vec_sum(TIterableNumbers number_list){
+    unsigned total = 0;
     for(auto e: number_list){
-        total += e.second;
+        total += e;
     }
     return(total);
 }
@@ -122,10 +153,14 @@ pos_pair_vector_t LIS_Pair(pos_pair_vector_t pv){
 // Try to tell if two reads are close enough to be isoforms or not
 // This step could (should ?) be integrated directely during seeds processing,
 // but is kept separated for modularity raisons.
-bool is_iso(pos_pair_vector_t & pos_list,  unsigned l1, unsigned l2, uint8_t k, uint8_t ks, float max_diff_rate, float min_cover){
+// Return value is a small unsigned it with value between 0 and 3 (for now)
+// 0 mean incoherent seed, 1 coherent seed but not enough cover, and 3 mean fine.
+// 2 can not exist because proper coverage with incoherent seed is still discarded..
+uint8_t is_iso(pos_pair_vector_t & pos_list,  unsigned l1, unsigned l2, uint8_t k, uint8_t ks, float max_diff_rate, float min_cover){
 
-    std::map<read_pos_t, uint8_t> coverage_ref;
-    std::map<read_pos_t, uint8_t> coverage_tgt;
+
+    std::vector<bool> coverage_ref(l1,0);
+    std::vector<bool> coverage_tgt(l2,0);
 
     read_pos_t last_ref = pos_list[0].first;
     read_pos_t last_tgt = pos_list[0].second;
@@ -144,8 +179,12 @@ bool is_iso(pos_pair_vector_t & pos_list,  unsigned l1, unsigned l2, uint8_t k, 
 
         // coverage is not just on kmer start, but on all it's length
         for(int j=0; j< k; ++j){
-            coverage_ref[p.first + j] = 1;
-            coverage_tgt[p.second + j] = 1;
+            if(p.first + j < l1){
+                coverage_ref[p.first + j] = true;
+            }
+            if(p.second + j < l2){
+                coverage_tgt[p.second + j] = true;
+            }
         }
         // how much did we advanced on reference and target ?
         dif_ref = std::abs(int64_t(p.first) - last_ref);
@@ -167,7 +206,8 @@ bool is_iso(pos_pair_vector_t & pos_list,  unsigned l1, unsigned l2, uint8_t k, 
 
         // If we go over limit, just say it is not an isoform, for we can not be sure.
         if(biggest_dif > max_dif){
-            return(false);
+            DEBUG("INCOHERENT SEED");
+            return(0);
         }
 
         // update the last positions
@@ -176,13 +216,17 @@ bool is_iso(pos_pair_vector_t & pos_list,  unsigned l1, unsigned l2, uint8_t k, 
 
     }
     // If seeds seem coherent, check if cover is high enough
-    float reference_cover = float(map_sum(coverage_ref) / l1);
-    float target_cover    = float(map_sum(coverage_tgt) / l2);
+    float reference_cover = vec_sum(coverage_ref) / float(l1);
+    float target_cover    = vec_sum(coverage_tgt) / float(l2);
+    
+    DEBUG(std::to_string(reference_cover) + ", " + std::to_string(target_cover));
+
     if(reference_cover < min_cover or target_cover < min_cover){
-        return(false);
+        DEBUG("UNSUFFICIENT COVER");
+        return(1);
     }
-  
-    return(true);
+    DEBUG("VALID ISOFORM");
+    return(3);
 }
 
 

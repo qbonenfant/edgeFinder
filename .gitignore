@@ -2,3 +2,4 @@
 *.edges
 edgeFinder
 *.pyc
+*.o

@@ -145,7 +145,9 @@ def run(lines, fasta, mdr, mc):
 
 
 diff_rates = list([float(i / 100) for i in range(100, 141, 2)])
+#diff_rates = [1.35]
 min_covers = list([float(i / 100) for i in range(30,81,1)])
+#min_covers = [0.76]
 print("diff_rates\\cover\t" + "\t".join(str(el) for el in min_covers), end="\t")
 for i in range(3):
     print("\t" + "\t".join(str(el) for el in min_covers), end="\t")

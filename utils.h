@@ -29,4 +29,7 @@ unsigned dna2int(seqan::DnaString seq);
 pos_pair_vector_t LIS_Pair(pos_pair_vector_t pv);
 
 // check if two reads are from the same isoform
-bool is_iso(pos_pair_vector_t & pos_list,  unsigned l1, unsigned l2, uint8_t k, uint8_t ks, float max_diff_rate, float min_cover);
+uint8_t is_iso(pos_pair_vector_t & pos_list,  unsigned l1, unsigned l2, uint8_t k, uint8_t ks, float max_diff_rate, float min_cover);
+
+// Split strings on delimiter
+std::vector<std::string> split (const std::string &s);

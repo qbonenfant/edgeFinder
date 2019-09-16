@@ -29,4 +29,7 @@ using index_t = seqan::Index<seq_set_t, seqan::BidirectionalIndex<seqan::FMIndex
 using read2pos_map_t = std::map<read_id_t, pos_pair_vector_t >;
 
 // Keeping track of isoforms status between target and source
-using isoform_map_t = std::map<unsigned, bool>;
+using isoform_map_t = std::map<unsigned, uint8_t>;
+
+// storing node type: repr or delegate.
+using node_type_t = std::map<std::string, bool>;
