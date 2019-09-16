@@ -49,7 +49,7 @@ void export_edges(read2pos_map_t & results, read_id_t current_read, const seq_id
         // Avoid printing the same id, and results that are too short
         if(it->first != current_read and it->second.size() >= nk ){
             
-            if(iso_map[it->first]==3){
+            if(iso_map[it->first]>=2){
                 node_types[ std::string(toCString(realIds[it->first]))] = true;
             }
             processed_reads.emplace_back(it->first);

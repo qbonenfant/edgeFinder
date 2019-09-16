@@ -155,7 +155,7 @@ pos_pair_vector_t LIS_Pair(pos_pair_vector_t pv){
 // but is kept separated for modularity raisons.
 // Return value is a small unsigned it with value between 0 and 3 (for now)
 // 0 mean incoherent seed, 1 coherent seed but not enough cover, and 3 mean fine.
-// 2 can not exist because proper coverage with incoherent seed is still discarded..
+// 2 is used for the case where one read do have enough cover but not the second one
 uint8_t is_iso(pos_pair_vector_t & pos_list,  unsigned l1, unsigned l2, uint8_t k, uint8_t ks, float max_diff_rate, float min_cover){
 
 
@@ -221,10 +221,19 @@ uint8_t is_iso(pos_pair_vector_t & pos_list,  unsigned l1, unsigned l2, uint8_t 
     
     DEBUG(std::to_string(reference_cover) + ", " + std::to_string(target_cover));
 
-    if(reference_cover < min_cover or target_cover < min_cover){
-        DEBUG("UNSUFFICIENT COVER");
+    if(reference_cover < min_cover and target_cover < min_cover){
+        DEBUG("UNSUFFICIENT COVER ON BOTH READ");
         return(1);
     }
+    else if(target_cover < min_cover and reference_cover >= min_cover){
+        DEBUG("UNSUFFICIENT TARGET COVER");
+        return(2);
+    }       
+    else if(target_cover >= min_cover and reference_cover < min_cover){
+        DEBUG("UNSUFFICIENT REFERENCE COVER");
+        return(2);
+    }
+        
     DEBUG("VALID ISOFORM");
     return(3);
 }
