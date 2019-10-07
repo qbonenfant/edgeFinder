@@ -11,6 +11,9 @@
 CXX         ?= g++-5
 CXXFLAGS    ?= -Wall -Wextra -pedantic -mtune=native 
 
+# CXXFLAGS for Igraph compiling
+#CXXFLAGS    ?= -Wall -Wextra -pedantic -mtune=native -march=native -Wl,-rpath -Wl,LIBDIR -LLIBDIR
+
 # These flags are required for the build to work.
 FLAGS        = -std=c++14
 

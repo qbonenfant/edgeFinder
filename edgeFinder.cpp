@@ -14,8 +14,8 @@
 #include "utils.h"
 
 
-#define DEBUG_FLAG 0
-#if DEBUG_FLAGx and not NDEBUG
+#define DEBUG_FLAG 1
+#if DEBUG_FLAG and not NDEBUG
 #define DEBUG(x) std::cout << x << "\n"
 #else
 #define DEBUG(x)
@@ -90,7 +90,7 @@ void split_edge(std::string edge_file, node_type_t node_types){
                 std::string target = line_fields[2];
                 
                 // checking if edge is between isoforms or not
-                if( node_types[target] ){
+                if( node_types[target]){
                     residual_file << line << "\n";
                     residual_lines+=1;
                 }
@@ -100,13 +100,13 @@ void split_edge(std::string edge_file, node_type_t node_types){
                     representant_lines +=1;
                 }
             }
-
         }
-        print("Exported " + std::to_string(residual_lines) + " residual edges and " + std::to_string(representant_lines) + " representant edges");
 
+        print("Exported " + std::to_string(residual_lines) + " residual edges and " + std::to_string(representant_lines) + " representant edges");
         edge_file_stream.close();
         repr_file.close();
         residual_file.close();
+
     }
     else{
         print("/!\\ \tCOULD NOT SPLIT EDGE FILE: FILES COULD NOT BE OPENED PROPERLY");
@@ -388,8 +388,11 @@ int main(int argc, char const ** argv)
     if(v>=1){
         print("Number of residual nodes: " + std::to_string(residual_node_number));
         print("Number of representant nodes: " + std::to_string(representant_node_number));
-        print("Total nodes: "+ std::to_string(residual_node_number + representant_node_number));
-        print("Residual node ratio: " + std::to_string( double(residual_node_number * 100 ) / (residual_node_number+ representant_node_number)) + "%" );
+        print("Total exported nodes: "+ std::to_string(residual_node_number + representant_node_number));
+        print("Residual node ratio: " + std::to_string( double(residual_node_number * 100 ) / (residual_node_number + representant_node_number)) + "%" );
+        print("---------------------------------------------------");
+        print("Total number of nodes: " + std::to_string(length(fasta.first)));
+        print("Number of singletons: " + std::to_string(length(fasta.first)-(residual_node_number + representant_node_number)));
     }
     // Splitting graph
     split_edge(output, node_types);

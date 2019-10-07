@@ -1,8 +1,8 @@
 #include "utils.h"
 
-#define DEBUG_FLAG 0
+#define DEBUG_FLAG 1
 
-#if DEBUG_FLAGx and not NDEBUG
+#if DEBUG_FLAG and not NDEBUG
 #define DEBUG(x) std::cout << x << "\n"
 #else
 #define DEBUG(x)
@@ -206,6 +206,8 @@ uint8_t is_iso(pos_pair_vector_t & pos_list,  unsigned l1, unsigned l2, uint8_t 
 
         // If we go over limit, just say it is not an isoform, for we can not be sure.
         if(biggest_dif > max_dif){
+            DEBUG(biggest_dif);
+            DEBUG(max_dif);
             DEBUG("INCOHERENT SEED");
             return(0);
         }
