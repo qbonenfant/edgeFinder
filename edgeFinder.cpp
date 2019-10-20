@@ -14,7 +14,7 @@
 #include "utils.h"
 
 
-#define DEBUG_FLAG 1
+#define DEBUG_FLAG 0
 #if DEBUG_FLAG and not NDEBUG
 #define DEBUG(x) std::cout << x << "\n"
 #else
@@ -143,6 +143,19 @@ void print(TPrintType text)
     std::cout << "[" << milis << " ms]\t" << text << std::endl;
 }
 
+unsigned count_seeds(read2pos_map_t results, unsigned current_read ){
+    unsigned nb_seeds = 0;
+    for( auto it=results.begin(); it != results.end(); ++it){
+        
+        // Avoid printing the same id, and results that are too short
+        if(it->first != current_read){
+
+            nb_seeds += it->second.size();
+        }
+    }
+    return(nb_seeds);
+}
+
 // Search links between reads, which correspond to edges in our graphs.
 void find_edges(const seq_id_set_t & ids, const seq_set_t & sequences, index_t & index, std::ofstream & output_file, uint8_t k, uint8_t ks, uint8_t nk, uint8_t nb_thread, double lc, bool rc, bool sampling, double mc, double mdr, node_type_t & node_types, uint8_t v){
     // Initialising containers
@@ -153,6 +166,11 @@ void find_edges(const seq_id_set_t & ids, const seq_set_t & sequences, index_t &
     pos_vector_t processed_reads;
     processed_reads.reserve(length(sequences));
     unsigned nb_sequences = length(sequences);
+
+    // keeping trace of number of seeds.
+    unsigned total_seed_number = 0;
+    unsigned filtered_seed_number = 0;
+
 
     // Processing all sequences
     for(unsigned current_read = 0; current_read < nb_sequences; ++current_read){
@@ -186,14 +204,21 @@ void find_edges(const seq_id_set_t & ids, const seq_set_t & sequences, index_t &
 
                 // Reverse ressearch
                 find_kmers(index, sequences[current_read], results, current_read, k, ks, lc, true);
-
+                total_seed_number += count_seeds(results, current_read);
+                
                 // Filtering seeds and keeping track of same isoforms
                 filter_edges(results, sequences, iso_map, current_read,  k, ks , true, mdr, mc);
-                
+                filtered_seed_number += count_seeds(results, current_read);
+
                 //Export to output file
                 export_edges(results, current_read, ids, sequences, processed_reads, iso_map, nk, true, node_types, output_file);
             }
         }
+    }
+    
+    if(v>= 2){
+        print("Total number of seeds: " + std::to_string(total_seed_number) );
+        print("Filtered number of seeds: " + std::to_string(filtered_seed_number) );
     }
 }
 
@@ -283,7 +308,7 @@ int main(int argc, char const ** argv)
     unsigned k = 16;              // kmerSize, default = 16                            
     unsigned ks = 3;              // k-mer skip size, default = 3                      
     unsigned nk= 10;              // Minimum common k-mer, default = 10                 
-    double   lc= 1.25;            // "dust2" low complexity threshold, default = 1.25
+    double   lc= 1.00;            // "dust2" low complexity threshold, default = 1.00
     double   mc= 0.75;  
     double   mdr= 1.35;           
     bool     rc =  true;          // Rev Comp research ? True by default               

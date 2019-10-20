@@ -1,6 +1,6 @@
 #include "utils.h"
 
-#define DEBUG_FLAG 1
+#define DEBUG_FLAG 0
 
 #if DEBUG_FLAG and not NDEBUG
 #define DEBUG(x) std::cout << x << "\n"
