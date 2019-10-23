@@ -2,6 +2,7 @@
 
 //Include macros and required types
 #include "approx_ressearch.h"
+//#include "seedlib/seedlib.hpp"
 
 
 using namespace seqan;
@@ -31,8 +32,7 @@ float lowComplexityScore(DnaString & sequence){
 
 void find_kmers(index_t & index, const seqan::DnaString & source_sequence, read2pos_map_t & pos_map, unsigned current_read, uint8_t k,  uint8_t kmer_skip, float lc_threshold, bool reversed ){
 
-	// Avoiding infinite loops
-	assert(kmer_skip >= 1);
+	assert(kmer_skip >= 1);//, "infinite loop");
 	
 	// current position in the kmer list / sequence
 	unsigned current_pos;
