@@ -42,7 +42,7 @@ void print_result_map(TPrintType my_map){
 }
 
 
-void export_edges(read2pos_map_t & results, read_id_t current_read, const seq_id_set_t & realIds, const seq_set_t & sequences, pos_vector_t & processed_reads, isoform_map_t & iso_map, uint8_t nk,  bool reverse, node_type_t & node_types, std::ofstream & output_file){
+void export_edges(read2pos_map_t & results, read_id_t current_read, const seq_id_set_t & realIds, const seq_set_t & sequences, pos_vector_t & processed_reads, isoform_map_t & iso_map, node_degree_t & node_degree,  uint8_t nk,  bool reverse, node_type_t & node_types, std::ofstream & output_file){
     
     for( auto it=results.begin(); it != results.end(); ++it){
         
@@ -61,6 +61,10 @@ void export_edges(read2pos_map_t & results, read_id_t current_read, const seq_id
             output_file << "\t" << length(sequences[it->first]);
             output_file << "\t" << reverse;
             output_file << "\t" << std::to_string(iso_map[it->first]);
+
+            // updating degree
+            node_degree[std::string(toCString(realIds[current_read]))] += 1;
+            node_degree[std::string(toCString(realIds[it->first]))] += 1;
 
             // Exporting seeds.
             for(auto pos: it->second){
@@ -102,6 +106,48 @@ void split_edge(std::string edge_file, node_type_t node_types){
             }
         }
 
+        print("Exported " + std::to_string(residual_lines) + " residual edges and " + std::to_string(representant_lines) + " representant edges");
+        edge_file_stream.close();
+        repr_file.close();
+        residual_file.close();
+
+    }
+    else{
+        print("/!\\ \tCOULD NOT SPLIT EDGE FILE: FILES COULD NOT BE OPENED PROPERLY");
+    }
+
+}
+
+void split_edge_on_degree(std::string edge_file, node_degree_t node_degree){
+    print("SPLITTIN EDGE FILE USING NODE DEGREE");
+    std::ifstream edge_file_stream(edge_file);
+    std::ofstream repr_file(edge_file + "_repr");
+    std::ofstream residual_file(edge_file + "_residual");
+    std::vector<std::string> line_fields;
+
+    unsigned representant_lines = 0;
+    unsigned residual_lines = 0;
+    if( edge_file_stream.is_open() and repr_file.is_open() and residual_file.is_open()){
+        for( std::string line; getline( edge_file_stream, line );){
+
+            line_fields = split(line);
+
+            // Getting the name of current target, sources are always repr
+            if(line_fields.size() > 2){
+                std::string target = line_fields[2];
+                
+                // checking if node has degree of 1
+                if( node_degree[target] == 1){
+                    residual_file << line << "\n";
+                    residual_lines+=1;
+                }
+                // If not, export to repr
+                else{
+                    repr_file << line << "\n";
+                    representant_lines +=1;
+                }
+            }
+        }
         print("Exported " + std::to_string(residual_lines) + " residual edges and " + std::to_string(representant_lines) + " representant edges");
         edge_file_stream.close();
         repr_file.close();
@@ -157,7 +203,7 @@ unsigned count_seeds(read2pos_map_t results, unsigned current_read ){
 }
 
 // Search links between reads, which correspond to edges in our graphs.
-void find_edges(const seq_id_set_t & ids, const seq_set_t & sequences, index_t & index, std::ofstream & output_file, uint8_t k, uint8_t ks, uint8_t nk, uint8_t nb_thread, double lc, bool rc, bool sampling, double mc, double mdr, node_type_t & node_types, uint8_t v){
+void find_edges(const seq_id_set_t & ids, const seq_set_t & sequences, index_t & index, std::ofstream & output_file, uint8_t k, uint8_t ks, uint8_t nk, uint8_t nb_thread, double lc, bool rc, bool sampling, double mc, double mdr, node_type_t & node_types, node_degree_t & node_degree , uint8_t v){
     // Initialising containers
     read2pos_map_t  results;
     isoform_map_t iso_map;
@@ -195,7 +241,7 @@ void find_edges(const seq_id_set_t & ids, const seq_set_t & sequences, index_t &
             // Filtering seeds and keeping track of same isoforms
             filter_edges(results, sequences, iso_map, current_read,  k, ks , false, mdr, mc);
             //Export to output file
-            export_edges(results, current_read, ids, sequences, processed_reads, iso_map, nk, false, node_types, output_file);
+            export_edges(results, current_read, ids, sequences, processed_reads, iso_map, node_degree, nk, false, node_types, output_file);
 
             if(rc){
                 // Clearing containers
@@ -211,7 +257,7 @@ void find_edges(const seq_id_set_t & ids, const seq_set_t & sequences, index_t &
                 filtered_seed_number += count_seeds(results, current_read);
 
                 //Export to output file
-                export_edges(results, current_read, ids, sequences, processed_reads, iso_map, nk, true, node_types, output_file);
+                export_edges(results, current_read, ids, sequences, processed_reads, iso_map, node_degree, nk, true, node_types, output_file);
             }
         }
     }
@@ -247,11 +293,15 @@ int main(int argc, char const ** argv)
         seqan::ArgParseArgument::INTEGER, "INT"));
 
     addOption(parser, seqan::ArgParseOption(
-        "i", "index", "path and prefix of the index files",
+        "i", "index", "Path and prefix of the index files",
         seqan::ArgParseArgument::STRING, "index file"));
 
     addOption(parser, seqan::ArgParseOption(
-        "o", "outFile", "path to the output file",
+        "si", "save_index", "Path to the folder to store index files, if wanted.",
+        seqan::ArgParseArgument::STRING, "index folder"));
+
+    addOption(parser, seqan::ArgParseOption(
+        "o", "outFile", "Path to the output file",
         seqan::ArgParseArgument::STRING, "output file"));
 
 
@@ -301,7 +351,8 @@ int main(int argc, char const ** argv)
 
     // Setting default values ---------------------------------------------------------
     std::string output = "out.edges";     // output file                               
-    std::string index_file = "";  // index prefix, if any                              
+    std::string index_file   = "";  // index prefix, if any                              
+    std::string index_folder = "";  // saving the index here if specified
     unsigned nb_thread = 4;       // default number of thread (4)                      
     //unsigned nbErr = 2;         // default number of errors EDIT: CAN NOT BE ASSIGNED
     unsigned v = 1;               // verobisty, default = 1                            
@@ -342,8 +393,11 @@ int main(int argc, char const ** argv)
     getOptionValue(lc, parser, "lc");
     getOptionValue(mc, parser, "mc");
     getOptionValue(mdr, parser, "mdr");
+
+    // Index file, if any
     getOptionValue(index_file, parser, "i");
-    
+    // Index storing folder if you want to keep it.
+    getOptionValue(index_folder, parser, "si");
     
     // Input file (fasta only)
     std::string fasta_file;
@@ -385,16 +439,18 @@ int main(int argc, char const ** argv)
     if(v>=1)
         print("INITIALISING INDEX");
     index_t index(fasta.second);
-    create_index(index_file, index, v);
+    create_index(index_file, index, index_folder, v);
 
-    // Initit the node type map
+    // Initit the node type map and degree map
     node_type_t node_types;
+    node_degree_t node_degree;
     for(auto read_name: fasta.first){
         node_types.insert( std::pair<std::string, bool>( std::string(toCString(read_name)), false) );
+        node_degree.insert( std::pair<std::string, unsigned>(std::string(toCString(read_name)), 0) );
     }
 
     // Ressearch edges and export the results
-    find_edges(fasta.first, fasta.second, index, output_file, k, ks, nk, nb_thread, lc, rc, sampling, mc, mdr, node_types, v);
+    find_edges(fasta.first, fasta.second, index, output_file, k, ks, nk, nb_thread, lc, rc, sampling, mc, mdr, node_types, node_degree, v);
     
     // Closing output file
     output_file.close();
@@ -402,8 +458,10 @@ int main(int argc, char const ** argv)
     // counting number of redisudal nodes
     unsigned residual_node_number = 0;
     unsigned representant_node_number = 0;
-    for(auto node: node_types){
-        if(node.second){
+    
+    //for(auto node: node_types){
+    for(auto node: node_degree){
+        if(node.second==1){
             residual_node_number++ ;
         }
         else{
@@ -420,7 +478,8 @@ int main(int argc, char const ** argv)
         print("Number of singletons: " + std::to_string(length(fasta.first)-(residual_node_number + representant_node_number)));
     }
     // Splitting graph
-    split_edge(output, node_types);
+    //split_edge(output, node_types);
+    split_edge_on_degree(output, node_degree);
     
     
     if(v>=1){

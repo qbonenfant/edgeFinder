@@ -33,3 +33,6 @@ using isoform_map_t = std::map<unsigned, uint8_t>;
 
 // storing node type: repr or delegate.
 using node_type_t = std::map<std::string, bool>;
+
+// storing node degree
+using node_degree_t = std::map<std::string, unsigned>;

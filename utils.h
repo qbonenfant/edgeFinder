@@ -21,7 +21,7 @@ pos_pair_vector_t LIS_Pair(pos_pair_vector_t pv);
 void parse_fasta(std::string filename, fasta_pair & fasta, uint8_t v);
 
 // Create the FM-Index
-void create_index(std::string index_file, index_t & index, uint8_t v);
+void create_index(std::string index_file, index_t & index, std::string index_folder , uint8_t v);
 
 //hashing function for DnaString
 unsigned dna2int(seqan::DnaString seq);

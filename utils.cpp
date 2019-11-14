@@ -63,13 +63,17 @@ void parse_fasta(std::string filename, fasta_pair & fasta, uint8_t v){
 
 
 //-------------- INDEX CREATION --------------
-void create_index(std::string index_file, index_t & index, uint8_t v){
+void create_index(std::string index_file, index_t & index, std::string index_folder , uint8_t v){
 
-    bool success;
+    bool success = false;
+    bool save_success = false;
     if(index_file != ""){
         if(v>=1)
             print("LOADING FROM INDEX FILE");
         success = open(index,index_file.c_str());
+        if(index_folder != ""){
+            print("LOADED INDEX WON'T BE SAVED, IT ALREADY EXISTS");
+        }
         
     }
     else{
@@ -85,6 +89,13 @@ void create_index(std::string index_file, index_t & index, uint8_t v){
     }
 
     else if(v>=1){
+        if(index_file == "" and index_folder != ""){
+            print("SAVING CREATED INDEX IN SPECIFIED LOCATION.");
+            save_success = save(index, toCString(index_folder));
+        }
+        if(save_success){
+            print("INDEX SAVED!");
+        }
         print("DONE");
     }
     
