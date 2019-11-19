@@ -88,16 +88,20 @@ void create_index(std::string index_file, index_t & index, std::string index_fol
         
     }
 
-    else if(v>=1){
-        if(index_file == "" and index_folder != ""){
+    if(index_file == "" and index_folder != ""){
+        if(v>=1){
             print("SAVING CREATED INDEX IN SPECIFIED LOCATION.");
-            save_success = save(index, toCString(index_folder));
         }
+        save_success = save(index, toCString(index_folder));
+        
         if(save_success){
             print("INDEX SAVED!");
         }
-        print("DONE");
+        else if (v>=1){
+            print("SOMETHING HAS GONE WRONG WHILE SAVING INDEX, CONTINUING WITHOUT SAVING.");
+        }
     }
+    print("DONE");
     
 }
 //-------------- ############## --------------
