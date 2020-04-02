@@ -143,7 +143,7 @@ pos_pair_vector_t LIS_Pair(pos_pair_vector_t pv){
         int lo = 1;
         int hi = L;
         while(lo <= hi){
-            int mid = ceil((lo+hi)/2);
+            int mid = (lo+hi+1)/2;
             if(X[M[mid]] <= X[i])
                 lo = mid+1;
             else

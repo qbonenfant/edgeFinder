@@ -13,6 +13,7 @@
 #include "approx_ressearch.h"
 #include "utils.h"
 
+#define VERSION 0.2
 
 #define DEBUG_FLAG 0
 #if DEBUG_FLAG and not NDEBUG
@@ -427,6 +428,8 @@ int main(int argc, char const ** argv)
     output_file << " index:" << index_file;
     output_file <<std::endl;
     output_file <<  "output:" << output << std::endl;
+    output_file <<  "Program version: " << VERSION << std::endl;
+
 
     // PROGRAM STARTING POINT
 
