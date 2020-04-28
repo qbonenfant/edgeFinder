@@ -15,7 +15,7 @@ void print(TPrintType text);
 float adjust_threshold(float c_old, uint8_t k_old, uint8_t k_new );
 
 // Perform a Longest Increasing Sequence computation on a pair vector.
-pos_pair_vector_t LIS_Pair(pos_pair_vector_t pv);
+pos_pair_vector_t LIS_Pair(pos_pair_vector_t & pv);
 
 // Parse the input fasta file
 void parse_fasta(std::string filename, fasta_pair & fasta, uint8_t v);
@@ -26,8 +26,9 @@ void create_index(std::string index_file, index_t & index, std::string index_fol
 //hashing function for DnaString
 unsigned dna2int(seqan::DnaString seq);
 // LIS for pair vector
-pos_pair_vector_t LIS_Pair(pos_pair_vector_t pv);
-
+pos_pair_vector_t LIS_Pair(pos_pair_vector_t & pv);
+// LIS for pair vector and spaced occurences
+pos_pair_vector_t spaced_LIS_Pair(pos_pair_vector_t & pv, uint8_t k);
 // check if two reads are from the same isoform
 uint8_t is_iso(pos_pair_vector_t & pos_list,  unsigned l1, unsigned l2, uint8_t k, uint8_t ks, float max_diff_rate, float min_cover);
 

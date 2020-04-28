@@ -111,7 +111,7 @@ def AB_exp_diff(seed_dict, r_len):
     return(score)
 
 
-def lr_local_prop(seed_dict, read):
+def lr_local_prop(seed_dict, read, r_len):
     reads = list(seed_dict.keys())
 
     # getting all unique seeds occurences
@@ -122,16 +122,19 @@ def lr_local_prop(seed_dict, read):
     score = {}
 
     # Using seeds as pivot.
-    for s in sorted(list(seeds))[1:]:
+    for s in sorted(list(seeds))[1:-1]:
+
+        exp = abs(s - (r_len - s)) / float(r_len)
 
         # Seed # on the left
         A_loc = len(list(el for el in seed_dict[read] if el <= s))
         A_tot = len(list(el for el in seeds if el <= s))
         # Seed # on the right
-        B_loc = len(list(el for el in seed_dict[read] if el >= s))
-        B_tot = len(list(el for el in seeds if el >= s))
+        B_loc = len(list(el for el in seed_dict[read] if el > s))
+        B_tot = len(list(el for el in seeds if el > s))
 
-        score[s] = abs(float(A_loc) / A_tot - float(B_loc) / B_tot)
+        score[s] = abs((float(A_loc) / A_tot - float(B_loc) / B_tot) )
+        # score[s] = A_loc / float(A_tot)
 
     return(score)
 
@@ -201,16 +204,17 @@ def plot_chimera(read_list, edge_data):
     nb_chimera = 0
     nb_normal = 0
     for read in read_list:
-        if("chimera" in read and nb_chimera < 5) or\
-          ("chimera" not in read and nb_normal < 5):
+        if(("chimera" in read and nb_chimera < 5) or
+          ("chimera" not in read and nb_normal < 5)) and\
+            len(edge_data[read]) == 2:
 
-            short_read_name = read.split("_")[0]
-            # short_read_name="chimeric" if "chimera" in read else "normal"
-            col = "r" if "chimera" in read else "b"
+            # short_read_name = read.split("_")[0]
+            short_read_name="chimeric" if "chimera" in read else "normal"
+            col="r" if "chimera" in read else "b"
 
             # pl_x, pl_y = nb_plot % 2, nb_plot // 2
-            pl_x = 1 if col == "r" else 0
-            pl_y = nb_chimera if pl_x == 1 else nb_normal
+            pl_x=1 if col == "r" else 0
+            pl_y=nb_chimera if pl_x == 1 else nb_normal
 
             # Computing data dict
             #######################################################
@@ -219,17 +223,24 @@ def plot_chimera(read_list, edge_data):
             # x, y = zip(*sorted([(k, v) for k, v in res.items()]))
             # ax[pl_x, pl_y].scatter(
             #     x, y, color=col, marker="+", label=short_read_name)
+            # ax[pl_x, pl_y].set(xlabel="position",
+            #                    ylabel=r"$\sum(\delta(A,B)²,exp²)/N$")
+
             #######################################################
 
             #######################################################
             # Local proportion
-            # for r in edge_data[read].keys():
-            r = list(edge_data[read].keys())[0]
-            res = lr_local_prop(edge_data[read], r)
-            x, y = zip(*sorted([(k, v) for k, v in res.items()]))
+            # # for r in edge_data[read].keys():
+            r=list(edge_data[read].keys())[0]
+            res=lr_local_prop(edge_data[read], r, read_length[read])
+            x, y=zip(*sorted([(k, v) for k, v in res.items()]))
             # y1, y2=zip(* y)
             ax[pl_x, pl_y].scatter(
-                x, y, marker="+", color=col, label=short_read_name)
+                x, y, marker = "+", color = col, label = short_read_name)
+            ax[pl_x, pl_y].set(xlabel = "position",
+                               ylabel = r"$A(r2)/(A(r2)+A(r3))$")
+
+
             # ax[pl_x, pl_y].scatter(
             # x, y2, color = 'b', marker = "+", label = short_read_name + "_B")
             #######################################################
@@ -244,13 +255,12 @@ def plot_chimera(read_list, edge_data):
 
             #######################################################
 
-            ax[pl_x, pl_y].legend(loc='lower left', bbox_to_anchor=(
-                0.0, 1.01), borderaxespad=0, frameon=False)
+            ax[pl_x, pl_y].legend(loc = 'lower left', bbox_to_anchor = (
+                0.0, 1.01), borderaxespad = 0, frameon = False)
 
             # ax[pl_x, pl_y].set(xlabel = "position",
             #                    ylabel = "L/R prop")
-            ax[pl_x, pl_y].set(xlabel="position",
-                               ylabel=r"$\sum(\delta(A,B)²,exp²)/N$")
+
                                # ylim=(0, 1))
 
             if(col == "r"):
@@ -266,18 +276,18 @@ def plot_chimera(read_list, edge_data):
 
 
 def parse_edge(edge_file_name):
-    edge_data = dd(dict)
+    edge_data=dd(dict)
     with open(edge_file_name) as edge_file:
         for line in edge_file:
-            line = line.rstrip("\n")
-            data = line.split("\t")
+            line=line.rstrip("\n")
+            data=line.split("\t")
             if(len(data) > 2):
-                read1 = data[0]
-                l1 = int(data[1])
-                read2 = data[2]
-                l2 = int(data[3])
+                read1=data[0]
+                l1=int(data[1])
+                read2=data[2]
+                l2=int(data[3])
                 # orientation = data[4]
-                pos = [tuple(int(a) for a in el.split(",")) for el in data[6:]]
+                pos=[tuple(int(a) for a in el.split(",")) for el in data[6:]]
 
                 read_set.add(read1)
 
@@ -285,32 +295,32 @@ def parse_edge(edge_file_name):
                 # ref_gene = read1.split("_")[-1]
                 # tgt_gene = read2.split("_")[-1]
 
-                read_length[read1] = l1
-                read_length[read2] = l2
+                read_length[read1]=l1
+                read_length[read2]=l2
 
                 # exporting respectiv cover of each read.
-                r_cover, t_cover = zip(*pos)
+                r_cover, t_cover=zip(*pos)
 
                 # storing edge data
                 # edge_data[read1][read2] = get_coverage(r_cover, l1)
                 # edge_data[read2][read1] = get_coverage(t_cover, l2)
-                edge_data[read1][read2] = r_cover
-                edge_data[read2][read1] = t_cover
+                edge_data[read1][read2]=r_cover
+                edge_data[read2][read1]=t_cover
     return(edge_data)
 
 
 ##############################################################################
 # Main start
-edge_file_name = sys.argv[1]
+edge_file_name=sys.argv[1]
 
-read_length = {}
-read_set = set()
+read_length={}
+read_set=set()
 
 # Parsing edge file and keeping seed occurences for each read.
-edge_data = parse_edge(edge_file_name)
+edge_data=parse_edge(edge_file_name)
 
-read_list = []
-all_reads = set(edge_data.keys())
+read_list=[]
+all_reads=set(edge_data.keys())
 # read_list = list(all_reads - read_set)
 # read_list = list(read_set)
 # read_list = list(all_reads)
@@ -323,24 +333,32 @@ if(len(sys.argv) > 2):
 
 # else, using all reads as input
 if(len(read_list) == 0):
-    read_list = list(edge_data.keys())
+    read_list=list(edge_data.keys())
 ##############################################################################
 # Data processing
 
 # Testing metric
-TP, TN, FP, FN = 0, 0, 0, 0
+TP, TN, FP, FN=0, 0, 0, 0
 
 for read in read_list:
-    res = None
-    mapped_reads = list(edge_data[read].keys())
-    if(len(mapped_reads) > 2):
-        res = AB_exp_diff(edge_data[read], read_length[read])
-    else:
-        selected_r = mapped_reads[0]
-        res = lr_local_prop(edge_data[read], selected_r)
 
-    key, val = zip(*sorted([(k, v) for k, v in res.items()]))
-    if(max(val) > 0.90):
+    res=None
+    mapped_reads=list(edge_data[read].keys())
+
+    met = 0
+    if(len(mapped_reads) > 1):
+    # if(1):
+        res=AB_exp_diff(edge_data[read], read_length[read])
+        key, val=zip(*sorted([(k, v) for k, v in res.items()]))
+        met = max(val)
+    elif(len(mapped_reads) == 2):
+        selected_r=mapped_reads[0]
+        res=lr_local_prop(edge_data[read], selected_r, read_length[read])
+        key, val=zip(*sorted([(k, v) for k, v in res.items()]))
+        met = max(val)
+
+
+    if(met > 0.90):
         if("chimera" in read):
             TP += 1
         else:
@@ -354,6 +372,8 @@ for read in read_list:
 print("TP", "TN", "FP", "FN")
 print(TP, TN, FP, FN)
 print("Rand index:")
-val = TP + TN
-tot = TP + FN + TN + FP
-print(round(float(val/tot),2))
+val=TP + TN
+tot=TP + FN + TN + FP
+print(round(float(val / tot), 2))
+
+# plot_chimera(read_list, edge_data)

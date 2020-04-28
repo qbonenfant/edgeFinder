@@ -162,14 +162,22 @@ void split_edge_on_degree(std::string edge_file, node_degree_t node_degree){
 }
 
 
-void filter_edges(read2pos_map_t & results, const seq_set_t & sequences, isoform_map_t & iso_map, unsigned current_read, uint8_t k, uint8_t ks, bool rev_comp, float max_diff_rate, float min_cover){
+void filter_edges(read2pos_map_t & results, const seq_set_t & sequences, isoform_map_t & iso_map, unsigned current_read, uint8_t k, uint8_t ks, bool rev_comp, float max_diff_rate, float min_cover, bool lis_mode){
     for(auto & read_results: results){
+        
         // If we work with antiparallel strands
         if(rev_comp){
             std::reverse( read_results.second.begin(), read_results.second.end());
         }
         // Keeping longest colinear streak of seeds
-        read_results.second = LIS_Pair(read_results.second);
+        // DEV-TEST Changing to spaced LIS
+        if(lis_mode){
+            read_results.second = spaced_LIS_Pair(read_results.second, k);
+        }
+        // Or normal LIS, depending on option
+        else{
+            read_results.second = LIS_Pair(read_results.second);
+        }
 
         
         // Checking if both reads are the same isoforms
@@ -204,7 +212,7 @@ unsigned count_seeds(read2pos_map_t results, unsigned current_read ){
 }
 
 // Search links between reads, which correspond to edges in our graphs.
-void find_edges(const seq_id_set_t & ids, const seq_set_t & sequences, index_t & index, std::ofstream & output_file, uint8_t k, uint8_t ks, uint8_t nk, uint8_t nb_thread, double lc, bool rc, bool sampling, double mc, double mdr, node_type_t & node_types, node_degree_t & node_degree , uint8_t v){
+void find_edges(const seq_id_set_t & ids, const seq_set_t & sequences, index_t & index, std::ofstream & output_file, uint8_t k, uint8_t ks, uint8_t nk, uint8_t nb_thread, double lc, bool rc, bool sampling, double mc, double mdr, node_type_t & node_types, node_degree_t & node_degree , bool lis_mode, uint8_t v){
     // Initialising containers
     read2pos_map_t  results;
     isoform_map_t iso_map;
@@ -240,7 +248,7 @@ void find_edges(const seq_id_set_t & ids, const seq_set_t & sequences, index_t &
             find_kmers(index, sequences[current_read], results, current_read, k, ks, lc, false);
             
             // Filtering seeds and keeping track of same isoforms
-            filter_edges(results, sequences, iso_map, current_read,  k, ks , false, mdr, mc);
+            filter_edges(results, sequences, iso_map, current_read,  k, ks , false, mdr, mc, lis_mode);
             //Export to output file
             export_edges(results, current_read, ids, sequences, processed_reads, iso_map, node_degree, nk, false, node_types, output_file);
 
@@ -254,7 +262,7 @@ void find_edges(const seq_id_set_t & ids, const seq_set_t & sequences, index_t &
                 total_seed_number += count_seeds(results, current_read);
                 
                 // Filtering seeds and keeping track of same isoforms
-                filter_edges(results, sequences, iso_map, current_read,  k, ks , true, mdr, mc);
+                filter_edges(results, sequences, iso_map, current_read,  k, ks , true, mdr, mc, lis_mode);
                 filtered_seed_number += count_seeds(results, current_read);
 
                 //Export to output file
@@ -338,6 +346,10 @@ int main(int argc, char const ** argv)
         seqan::ArgParseArgument::INTEGER, "INT"));
 
     addOption(parser, seqan::ArgParseOption(
+        "slis", "spaced_lis", "Choose between spaced LIS (1) or normal LIS(0)",
+        seqan::ArgParseArgument::INTEGER, "INT"));
+
+    addOption(parser, seqan::ArgParseOption(
         "s", "sampling", "Use read sampling / no reprocess method. Set to 0 to deactivate",
         seqan::ArgParseArgument::INTEGER, "INT"));
 
@@ -364,6 +376,7 @@ int main(int argc, char const ** argv)
     double   mc= 0.75;  
     double   mdr= 1.35;           
     bool     rc =  true;          // Rev Comp research ? True by default               
+    bool     spaced_lis =  true;  // Spaced LIS mode   ? True by default
     bool sampling =  true;        // Sampling method   ? True by default                 
     // --------------------------------------------------------------------------------
 
@@ -376,6 +389,13 @@ int main(int argc, char const ** argv)
         int val;
         getOptionValue(val, parser, "rc");
         rc = val!=0;
+    }
+
+    // checking LIS mode
+    if( isSet(parser, "spaced_lis") ){
+        int val;
+        getOptionValue(val, parser, "spaced_lis");
+        spaced_lis = val!=0;
     }
     
     // checking if sampling is activated
@@ -425,6 +445,7 @@ int main(int argc, char const ** argv)
     output_file << " adusted_lc:" << lc;
     output_file << " rev_comp:" << rc;
     output_file << " sampling:" << sampling;
+    output_file << " LIS_mode:" << spaced_lis;
     output_file << " index:" << index_file;
     output_file <<std::endl;
     output_file <<  "output:" << output << std::endl;
@@ -453,7 +474,7 @@ int main(int argc, char const ** argv)
     }
 
     // Ressearch edges and export the results
-    find_edges(fasta.first, fasta.second, index, output_file, k, ks, nk, nb_thread, lc, rc, sampling, mc, mdr, node_types, node_degree, v);
+    find_edges(fasta.first, fasta.second, index, output_file, k, ks, nk, nb_thread, lc, rc, sampling, mc, mdr, node_types, node_degree, spaced_lis, v);
     
     // Closing output file
     output_file.close();

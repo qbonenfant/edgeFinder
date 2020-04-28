@@ -131,7 +131,7 @@ inline unsigned vec_sum(TIterableNumbers number_list){
 
 
 // LIS for vector of pairs. LIS is computed on second element
-pos_pair_vector_t LIS_Pair(pos_pair_vector_t pv){
+pos_pair_vector_t LIS_Pair(pos_pair_vector_t & pv){
     pos_vector_t X = extract_second_from_pair(pv);
     const int N = X.size();
     int L = 0;
@@ -164,6 +164,60 @@ pos_pair_vector_t LIS_Pair(pos_pair_vector_t pv){
     }
     return(S);
 }
+
+
+// Same as LIS pair, but element need to be spaced by km_size
+pos_pair_vector_t spaced_LIS_Pair(pos_pair_vector_t & pv, uint8_t km_size){    
+
+    pos_vector_t X = extract_second_from_pair(pv);
+    const int N = X.size();
+    int L = 0;
+    pos_vector_t P(N);
+    std::vector<int> M(N+1, -1);
+    M[0] = 0;    
+
+    for(int i=0; i<N; i++){
+        int lo = 1;
+        int hi = L;
+        while(lo <= hi){
+            int mid = (lo+hi+1)/2;
+            if(X[M[mid]] + km_size <= X[i])
+                lo = mid+1;
+            else
+                hi = mid-1;
+        }
+        int newL = lo;
+        P[i] = M[newL-1];
+        
+        // is there a value for M[newL] ?
+        if(M[newL] >= 0){
+            // is value for newL really better ?
+            if(X[M[newL]] >= X[i] ){
+                // is it compatible with interval?
+                if( newL==1 or X[P[i]] + km_size <= X[i] ){
+                    M[newL] = i;
+                }
+            }
+        }
+        // If no value, just set it;
+        else{
+            M[newL] = i;
+        }
+
+        if(newL > L)
+            L = newL;
+    }
+    pos_pair_vector_t S(L);
+    int k = M[L];
+    for(int i= L-1; i>=0; i--){
+        S[i] = pv[k];
+        k = P[k];
+    }
+    return(S);
+}
+
+
+
 
 // Try to tell if two reads are close enough to be isoforms or not
 // This step could (should ?) be integrated directely during seeds processing,
