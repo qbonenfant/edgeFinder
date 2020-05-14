@@ -1,8 +1,8 @@
 #include "utils.h"
 
-#define DEBUG_FLAG 0
+//#define EF_DEBUG 1
 
-#if DEBUG_FLAG and not NDEBUG
+#if EF_DEBUG and not NDEBUG
 #define DEBUG(x) std::cout << x << "\n"
 #else
 #define DEBUG(x)
@@ -17,7 +17,9 @@ using namespace seqan;
 //--------------------------------------------
 
 
-//---------- DISPLAY AND EXPORT---------------
+
+///////////////////////////////////////////////////////////////////////////////
+// ------------------------  DISPLAY AND EXPORT -----------------------------//
 
 // Shortcut to print text in stdout with time stamp
 const auto boot_time = std::chrono::steady_clock::now();
@@ -27,6 +29,100 @@ void print(TPrintType text)
     const auto milis = std::chrono::duration <double, std::milli>(std::chrono::steady_clock::now() - boot_time).count();
     std::cout << "[" << milis << " ms]\t" << text << std::endl;
 }
+
+// Export the mapping data to the outfile in .edges format
+void export_edges(read2pos_map_t & results, read_id_t current_read, const seq_id_set_t & realIds, const seq_set_t & sequences, bool reverse, float score, std::ofstream & output_file){
+    
+    for(auto it = results.begin(); it != results.end(); ++it){
+
+        output_file << realIds[current_read];
+        output_file << "\t" << length(sequences[current_read]);
+        output_file << "\t" << realIds[it->first];
+        output_file << "\t" << length(sequences[it->first]);
+        output_file << "\t" << reverse;
+        output_file << "\t" << score;
+
+        // Exporting seeds.
+        for(auto pos: it->second){
+                output_file << "\t" << pos.first << "," << pos.second;
+        }
+        output_file << "\n";
+    }
+}
+
+//---------------------------------------------------------------------------//
+///////////////////////////////////////////////////////////////////////////////
+
+
+
+///////////////////////////////////////////////////////////////////////////////
+//---------------------------- FASTA PARSING --------------------------------//
+
+// Parse a fasta file using SeqAn structure.
+// Data container is passed by reference and filled.
+void parse_fasta(fasta_pair_t & fasta, ef_params & params){
+    
+    seqan::SeqFileIn seqFileIn(seqan::toCString(params.fasta_file));
+    readRecords( fasta.first, fasta.second, seqFileIn);
+}
+//---------------------------------------------------------------------------//
+///////////////////////////////////////////////////////////////////////////////
+
+
+
+///////////////////////////////////////////////////////////////////////////////
+//----------------------------- INDEX CREATION ------------------------------//
+
+void create_index(index_t & index, ef_params & params){
+    // TODO: Fix the output message and fail management.
+    // Errors should go to stderr, and index creation
+    // can not fail, or else  the program needs to end.
+
+    bool success = false;
+    bool save_success = false;
+    if(params.index_file != ""){
+        if(params.v>=1)
+            print("LOADING FROM INDEX FILE");
+        success = open(index, params.index_file.c_str());
+        if(params.index_folder != ""){
+            print("LOADED INDEX WON'T BE SAVED, IT ALREADY EXISTS");
+        }
+        
+    }
+    else{
+        if(params.v>=1)
+            print("NO INDEX FILE, CREATING FROM SCRATCH...");
+
+        success = indexCreate(index);
+    }
+    
+    if(not success){
+        print("INVALID INDEX FILE: EITHER PATH IS WRONG OR INPUT FILE CAN'T BE INDEXED");
+        
+    }
+
+    if(params.index_file == "" and params.index_folder != ""){
+        if(params.v>=1){
+            print("SAVING CREATED INDEX IN SPECIFIED LOCATION.");
+        }
+        save_success = save(index, seqan::toCString(params.index_folder));
+        
+        if(save_success){
+            print("INDEX SAVED!");
+        }
+        else if (params.v>=1){
+            print("SOMETHING HAS GONE WRONG WHILE SAVING INDEX, CONTINUING WITHOUT SAVING.");
+        }
+    }
+    print("DONE");
+}
+// --------------------------------------------------------------------------//
+///////////////////////////////////////////////////////////////////////////////
+
+
+
+///////////////////////////////////////////////////////////////////////////////
+// --------------------------- MISC FUNCTIONS -------------------------------//
 
 // Spliting strings on delimiter
 std::vector<std::string> split (const std::string & s) {
@@ -41,72 +137,6 @@ std::vector<std::string> split (const std::string & s) {
     return result;
 }
 
-
-//-------------- FASTA PARSING --------------
-void parse_fasta(std::string filename, fasta_pair & fasta, uint8_t v){
-    
-    if(v>=1)
-        print("PARSING FILE");
-
-    SeqFileIn seqFileIn(toCString(filename));
-    readRecords( fasta.first, fasta.second, seqFileIn);
-
-    if(v>=2){
-        print("Number of read parsed:");
-        print(length(fasta.first));
-    }
-
-    if(v>=1)
-        print("DONE");
-}
-//-------------- ############## --------------
-
-
-//-------------- INDEX CREATION --------------
-void create_index(std::string index_file, index_t & index, std::string index_folder , uint8_t v){
-
-    bool success = false;
-    bool save_success = false;
-    if(index_file != ""){
-        if(v>=1)
-            print("LOADING FROM INDEX FILE");
-        success = open(index,index_file.c_str());
-        if(index_folder != ""){
-            print("LOADED INDEX WON'T BE SAVED, IT ALREADY EXISTS");
-        }
-        
-    }
-    else{
-        if(v>=1)
-            print("NO INDEX FILE, CREATING FROM SCRATCH...");
-
-        success = indexCreate(index);
-    }
-    
-    if(not success){
-        print("INVALID INDEX FILE: EITHER PATH IS WRONG OR INPUT FILE CAN'T BE INDEXED");
-        
-    }
-
-    if(index_file == "" and index_folder != ""){
-        if(v>=1){
-            print("SAVING CREATED INDEX IN SPECIFIED LOCATION.");
-        }
-        save_success = save(index, toCString(index_folder));
-        
-        if(save_success){
-            print("INDEX SAVED!");
-        }
-        else if (v>=1){
-            print("SOMETHING HAS GONE WRONG WHILE SAVING INDEX, CONTINUING WITHOUT SAVING.");
-        }
-    }
-    print("DONE");
-    
-}
-//-------------- ############## --------------
-
-
 // Extract the second elements from a pair vector
 pos_vector_t extract_second_from_pair(pos_pair_vector_t pos_pair_vector){
     pos_vector_t second_part;
@@ -118,10 +148,9 @@ pos_vector_t extract_second_from_pair(pos_pair_vector_t pos_pair_vector){
     return(second_part);
 }
 
-
-// go through an associative array and build up the sum of the values, regardless of their key
+// Go through an iterable and build up the sum of the values
 template<typename TIterableNumbers>
-inline unsigned vec_sum(TIterableNumbers number_list){
+unsigned iter_sum(TIterableNumbers number_list){
     unsigned total = 0;
     for(auto e: number_list){
         total += e;
@@ -129,6 +158,43 @@ inline unsigned vec_sum(TIterableNumbers number_list){
     return(total);
 }
 
+// Converts DnaString to int. sequence longer than 32 will cause overflow.
+unsigned dna2int(seqan::DnaString seq){
+
+    unsigned value = 0;
+    if(length(seq)>32){
+        throw std::invalid_argument("K-mer can not exceed 32 bases for uint64_t conversion.");
+    }
+
+    for(auto c : seq){
+        value = value << 2 | uint8_t(c);    
+    }
+    return(value);
+}
+
+
+
+// Count the number of seeds in a mapping
+unsigned count_seeds(read2pos_map_t results, unsigned current_read ){
+    unsigned nb_seeds = 0;
+    for( auto it=results.begin(); it != results.end(); ++it){
+
+        // Avoid printing the same id, and results that are too short
+        if(it->first != current_read){
+
+            nb_seeds += it->second.size();
+        }
+    }
+    return(nb_seeds);
+}
+
+// --------------------------------------------------------------------------//
+///////////////////////////////////////////////////////////////////////////////
+
+
+
+///////////////////////////////////////////////////////////////////////////////
+//------------------- LONGEST INCREASING SUBSEQUENCE-------------------------//
 
 // LIS for vector of pairs. LIS is computed on second element
 pos_pair_vector_t LIS_Pair(pos_pair_vector_t & pv){
@@ -215,160 +281,148 @@ pos_pair_vector_t spaced_LIS_Pair(pos_pair_vector_t & pv, uint8_t km_size){
     }
     return(S);
 }
+// --------------------------------------------------------------------------//
+///////////////////////////////////////////////////////////////////////////////
 
 
 
+///////////////////////////////////////////////////////////////////////////////
+// ------------------------ CHIMERA DETECTION -------------------------------//
 
-// Try to tell if two reads are close enough to be isoforms or not
-// This step could (should ?) be integrated directely during seeds processing,
-// but is kept separated for modularity raisons.
-// Return value is a small unsigned it with value between 0 and 3 (for now)
-// 0 mean incoherent seed, 1 coherent seed but not enough cover, and 3 mean fine.
-// 2 is used for the case where one read do have enough cover but not the second one
-uint8_t is_iso(pos_pair_vector_t & pos_list,  unsigned l1, unsigned l2, uint8_t k, uint8_t ks, float max_diff_rate, float min_cover){
+// Try to tell if a read may be a chimera. Return a score between 0 and 1.
+float is_chimera(read2pos_map_t & mapping, unsigned read_len){
 
+    // mapping seed distribution for each read
+    std::map<read_pos_t, std::map<read_id_t, float> > AB_map;
+    // curent AB value for each read. Starts at 1.
+    std::unordered_map<read_id_t, float> current_read_val;
+    // number of read in the mapping
+    unsigned nb_read = mapping.size();
 
-    std::vector<bool> coverage_ref(l1,0);
-    std::vector<bool> coverage_tgt(l2,0);
+    // Creating lookup structures for faster computation of the score
+    for(auto read_seeds: mapping){
+        // init the starting AB value for each read
+        current_read_val[read_seeds.first] = 1.0;
+        // number of seeds on this read
+        int r_nb_seed = read_seeds.second.size();
+        int current_seed_nb = 1;
+        // for each seed position, store the AB diff
+        for(read_pos_pair_t pos_pair: read_seeds.second){
+            float AB_score = abs((2 * current_seed_nb) - r_nb_seed ) / r_nb_seed;
+            AB_map[pos_pair.first][read_seeds.first] = AB_score; 
+            current_seed_nb ++;
+        }
+    }
 
-    read_pos_t last_ref = pos_list[0].first;
-    read_pos_t last_tgt = pos_list[0].second;
-
-    // computing coverage and testing seed coherence
-    int64_t dif_ref;
-    int64_t dif_tgt;
-    int64_t biggest_dif;
-    int64_t smallest_dif;
-    int64_t max_dif;
-    int64_t relative_dif;
-
-    for(auto p: pos_list){
+    // Computing score for each seed position and keeping max
+    float max_score = 0;
+    for(auto s_pos: AB_map){
         
+        // expected AB difference at this seed position for the source read
+        float exp = std::abs((2 * s_pos.first) - read_len) / read_len;
 
+        // current score at a position is the sum of the diff between AB score and exp
+        // normalized by the number of read mapped
+        float current_score = 0.0;
 
-        // coverage is not just on kmer start, but on all it's length
-        for(int j=0; j< k; ++j){
-            if(p.first + j < l1){
-                coverage_ref[p.first + j] = true;
+        // for each mapped read, fetch the AB score
+        for(auto rid: current_read_val){
+            // checking if read id has a value in the s_pos map
+            if(s_pos.second.find( rid.first ) != s_pos.second.end()){
+                // If yes, set current AB value for this read
+                rid.second = s_pos.second[rid.first];
             }
-            if(p.second + j < l2){
-                coverage_tgt[p.second + j] = true;
-            }
+            current_score += rid.second - exp;
         }
-        // how much did we advanced on reference and target ?
-        dif_ref = std::abs(int64_t(p.first) - last_ref);
-        dif_tgt = std::abs(int64_t(p.second) - last_tgt);
-
-        // find the biggest gap
-        biggest_dif = std::max(dif_ref, dif_tgt);
-        // and smallest
-        smallest_dif = std::min(dif_ref, dif_tgt);
-
-        // maximum allowed difference
-        max_dif= std::max(uint8_t(2), ks);
-        if(smallest_dif != 0){
-            max_dif = unsigned(std::max(int64_t(smallest_dif * max_diff_rate), max_dif));
-        }
-
-        // offset difference  between the two read
-        relative_dif = std::abs(dif_ref - dif_tgt);
-
-        // If we go over limit, just say it is not an isoform, for we can not be sure.
-        if(biggest_dif > max_dif){
-            DEBUG(biggest_dif);
-            DEBUG(max_dif);
-            DEBUG("INCOHERENT SEED");
-            return(0);
-        }
-
-        // update the last positions
-        last_ref = p.first;
-        last_tgt = p.second;
-
+        current_score /= nb_read;
+        max_score = std::max(max_score, current_score);
     }
-    // If seeds seem coherent, check if cover is high enough
-    float reference_cover = vec_sum(coverage_ref) / float(l1);
-    float target_cover    = vec_sum(coverage_tgt) / float(l2);
+    return(max_score);
+}
+// --------------------------------------------------------------------------//
+///////////////////////////////////////////////////////////////////////////////
+
+
+
+///////////////////////////////////////////////////////////////////////////////
+// -------------------------- SEEDS PRE-FILTER ------------------------------//
+
+// DEPRECATED: This functionnality is now included in
+// the delegate function of the ressearch section
+
+// This function ensure that we do not have duplicate seeds before starting the LIS
+// pos_pair_vector_t filter_seeds(pos_pair_vector_t & pair_vector, unsigned allocated_size, uint8_t ks){
     
-    DEBUG(std::to_string(reference_cover) + ", " + std::to_string(target_cover));
+//     pos_pair_vector_t filtered_pair_vector;
 
-    if(reference_cover < min_cover and target_cover < min_cover){
-        DEBUG("UNSUFFICIENT COVER ON BOTH READ");
-        return(1);
-    }
-    else if(target_cover < min_cover and reference_cover >= min_cover){
-        DEBUG("UNSUFFICIENT TARGET COVER");
-        return(2);
-    }       
-    else if(target_cover >= min_cover and reference_cover < min_cover){
-        DEBUG("UNSUFFICIENT REFERENCE COVER");
-        return(2);
-    }
-        
-    DEBUG("VALID ISOFORM");
-    return(3);
-}
+//     // Filtering redundant seeds.
+//     // allocating at least the same size as the original result array
+//     filtered_pair_vector.reserve(allocated_size);
+
+//     // keeping previous positions in memory
+//     unsigned last_first  = -1;
+//     unsigned last_second =  0;
+
+//     // for each seed occurences
+//     for(auto pos: pair_vector){
+//         // If it is a different seed, keep it 
+//         if( filtered_pair_vector.empty() or last_first != pos.first ){
+//             filtered_pair_vector.emplace_back(pos);
+//         }
+//         // else check that the second position do is different
+//         // by at least kmer skip size, minus the max error rate.
+//         else if(std::abs(int64_t(pos.second) - last_second ) > ks - 2 ){
+//             filtered_pair_vector.emplace_back(pos);
+//         }
+//         //updating last position
+//         last_first  = pos.first;
+//         last_second = pos.second;
+//     }
+//     return(filtered_pair_vector);
+// }
+// --------------------------------------------------------------------------//
+///////////////////////////////////////////////////////////////////////////////
 
 
-// Converts DnaString to int. sequence longer than 32 will cause overflow.
-inline unsigned dna2int(DnaString seq){
+
+///////////////////////////////////////////////////////////////////////////////
+// ---------------------------- EDGES  FILTER -------------------------------//
+void filter_edges(read2pos_map_t & results, const seq_set_t & sequences, unsigned current_read, bool rev_comp, ef_params & params){
     
-    unsigned value = 0;
-    for(auto c : seq){
-        value = value << 2 | uint8_t(c);    
-    }
-    return(value);
-}
+    // manually moving the iterator makes for easier map modification.
+    auto result_iterator = results.begin();
 
-// adjust threshold value to kmer size
-float adjust_threshold(float c_old, uint8_t k_old, uint8_t k_new ){
-    float c_new = c_old * float( std::pow(k_new - 2 + 1,2) /  std::pow(k_old - 2 + 1,2));
-    return(c_new);
-}
+    // Checking each mapped read
+    while(result_iterator != results.end()){
 
-// Just sum up the elements of an array
-template<typename TIterable>
-unsigned array_sum(TIterable int_array){
-   
-     unsigned sum = 0;
-    for(auto el: int_array){
-        sum+= el;
-    }
-
-    return(sum);
-}
-
-
-
-//-------------- SEED FILTERING ---------------
-
-pos_pair_vector_t filter_seeds(pos_pair_vector_t & results, unsigned allocated_size, uint8_t ks){
-    
-    pos_pair_vector_t filtered_results;
-
-    // Filtering redundant seeds.
-    // allocating at least the same size as the original result array
-    filtered_results.reserve(allocated_size);
-
-    // keeping previous positions in memory
-    unsigned last_first  = -1;
-    unsigned last_second =  0;
-
-    // for each seed occurences
-    for(auto pos: results){
-        // If it is a different seed, keep it 
-        if( filtered_results.empty() or last_first != pos.first ){
-            filtered_results.emplace_back(pos);
+        // If we work with opposite orientation reads reverse seed vector first
+        if(rev_comp){
+            std::reverse( result_iterator->second.begin(), result_iterator->second.end());
         }
-        // else check that the second position do is different
-        // by at least kmer skip size, minus the max error rate.
-        else if(std::abs(int64_t(pos.second) - last_second ) > ks - 2 ){
-            filtered_results.emplace_back(pos);
-        }
-        //updating last position
-        last_first  = pos.first;
-        last_second = pos.second;
-    }
 
-    return(filtered_results);
+        // Keeping longest colinear streak of seeds with no overlap
+        if(params.lis_mode == 1 ){
+            result_iterator->second = spaced_LIS_Pair(result_iterator->second, params.k);
+        }
+        // Or with overlap allowed, depending on option
+        else{
+            result_iterator->second = LIS_Pair(result_iterator->second);
+        }
+
+        // fetching reads length and deriving required number of common k-mers
+        unsigned l1 = length(sequences[current_read]);
+        unsigned l2 = length(sequences[result_iterator->first]);
+        unsigned rnk = std::max(params.nk, (unsigned)std::floor(params.kp * std::min(l1,l2) / params.k )  );
+
+        // If we do not have enough seeds, reject the mapping
+        if(result_iterator->second.size() < rnk){
+            result_iterator = results.erase(result_iterator);
+        }
+        else{
+            // else just fetch the next element
+            result_iterator ++;
+        }       
+    }
 }
+// --------------------------------------------------------------------------//
+///////////////////////////////////////////////////////////////////////////////

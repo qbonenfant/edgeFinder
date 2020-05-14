@@ -111,6 +111,38 @@ def AB_exp_diff(seed_dict, r_len):
     return(score)
 
 
+def simple_AB_exp_diff(seed_pairs, l1, l2, limit=0.8):
+
+    # Assuming both are not chimeras
+    source_chimera = False
+    target_chimera = False
+    s_seeds, t_seeds = zip(*seed_pairs)
+
+    # checking source first
+    for s in s_seeds[1:]:
+        exp = abs(s - (l1 - s)) / float(l1)
+        fl = float(len(s_seeds))
+        A = len(list(el for el in s_seeds if el >= s)) / fl
+        B = len(list(el for el in s_seeds if el < s)) / fl
+        c_score = abs((A - B)**2 - exp**2)
+        if(c_score >= limit):
+            source_chimera = True
+            break
+
+    # checking target
+    for s in t_seeds[1:]:
+        exp = abs(s - (l2 - s)) / float(l2)
+        fl = float(len(t_seeds))
+        A = len(list(el for el in t_seeds if el >= s)) / fl
+        B = len(list(el for el in t_seeds if el < s)) / fl
+        c_score = abs((A - B)**2 - exp**2)
+        if(c_score >= limit):
+            target_chimera = True
+            break
+
+    return(source_chimera, target_chimera)
+
+
 def lr_local_prop(seed_dict, read, r_len):
     reads = list(seed_dict.keys())
 
@@ -309,18 +341,46 @@ def parse_edge(edge_file_name):
     return(edge_data)
 
 
+# compute stdev score for the two reads of each line.
+def single_line_score(edge_file_name):
+    chimera_count = dd(int)
+    with open(edge_file_name) as edge_file:
+        for line in edge_file:
+            line = line.rstrip("\n")
+            data = line.split("\t")
+            if(len(data) > 2):
+                read1 = data[0]
+                l1 = int(data[1])
+                read2 = data[2]
+                l2 =int(data[3])
+                # orientation = data[4]
+                pos = [tuple(int(a) for a in el.split(",")) for el in data[6:]]
+                sc, tc = simple_AB_exp_diff(pos, l1, l2)
+
+                chimera_count[read1] += 1 if sc else 0
+                chimera_count[read2] += 1 if tc else 0
+
+    # printing results
+    for k in sorted(chimera_count.keys(), key= lambda x: chimera_count[x], reverse = True):
+        print(k, chimera_count[k] , sep="\t")
+
+
+
+
 ##############################################################################
 # Main start
 edge_file_name=sys.argv[1]
 
-read_length={}
-read_set=set()
+
+
+read_length = {}
+read_set = set()
 
 # Parsing edge file and keeping seed occurences for each read.
-edge_data=parse_edge(edge_file_name)
+edge_data = parse_edge(edge_file_name)
 
-read_list=[]
-all_reads=set(edge_data.keys())
+read_list = []
+all_reads = set(edge_data.keys())
 # read_list = list(all_reads - read_set)
 # read_list = list(read_set)
 # read_list = list(all_reads)
@@ -333,12 +393,13 @@ if(len(sys.argv) > 2):
 
 # else, using all reads as input
 if(len(read_list) == 0):
-    read_list=list(edge_data.keys())
+    read_list=list(all_reads)
+
 ##############################################################################
 # Data processing
 
 # Testing metric
-TP, TN, FP, FN=0, 0, 0, 0
+# TP, TN, FP, FN=0, 0, 0, 0
 
 for read in read_list:
 
@@ -347,16 +408,9 @@ for read in read_list:
 
     met = 0
     if(len(mapped_reads) > 1):
-    # if(1):
-        res=AB_exp_diff(edge_data[read], read_length[read])
-        key, val=zip(*sorted([(k, v) for k, v in res.items()]))
+        res = AB_exp_diff(edge_data[read], read_length[read])
+        key, val = zip(*sorted([(k, v) for k, v in res.items()]))
         met = max(val)
-    elif(len(mapped_reads) == 2):
-        selected_r=mapped_reads[0]
-        res=lr_local_prop(edge_data[read], selected_r, read_length[read])
-        key, val=zip(*sorted([(k, v) for k, v in res.items()]))
-        met = max(val)
-
 
     if(met > 0.90):
         if("chimera" in read):

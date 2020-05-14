@@ -30,9 +30,9 @@ float lowComplexityScore(DnaString & sequence){
 }
 
 
-void find_kmers(index_t & index, const seqan::DnaString & source_sequence, read2pos_map_t & pos_map, unsigned current_read, uint8_t k,  uint8_t kmer_skip, float lc_threshold, bool reversed ){
+void find_kmers(index_t & index, const DnaString & source_sequence, read2pos_map_t & pos_map, unsigned current_read, bool reversed, ef_params & params){
 
-	assert(kmer_skip >= 1);//, "infinite loop");
+	assert(params.ks >= 1);// avoid "infinite loop";
 	
 	// current position in the kmer list / sequence
 	unsigned current_pos;
@@ -40,6 +40,9 @@ void find_kmers(index_t & index, const seqan::DnaString & source_sequence, read2
 	// delegate function aggegating results
 	 auto delegateParallel = [&](auto & iter, const DnaString & needle, int errors)
 	        {
+	        	// silencing warnings on unused template parameters
+	        	(void)needle;
+	        	(void)errors;
 	            for (auto occ : getOccurrences(iter)){
 	                // Identifying read Id and position on read
 	                read_id_t  read_id  =  getValueI1(occ);
@@ -57,11 +60,11 @@ void find_kmers(index_t & index, const seqan::DnaString & source_sequence, read2
 
 	// Going through sequence k-mers, jumping 'kmer_skip' position each time
 	
-	for(current_pos = 0; current_pos < length(source_sequence) - k + 1; current_pos += kmer_skip){
-			DnaString kmer = infix(source_sequence, current_pos, current_pos + k);
+	for(current_pos = 0; current_pos < length(source_sequence) - params.k + 1; current_pos += params.ks){
+			DnaString kmer = infix(source_sequence, current_pos, current_pos + params.k);
 			
 			// Checking sequence complexity before searching
-			if(lowComplexityScore(kmer) < lc_threshold){
+			if(lowComplexityScore(kmer) < params.lc){
 				if(reversed){
 					reverseComplement(kmer);
 				}
@@ -70,33 +73,3 @@ void find_kmers(index_t & index, const seqan::DnaString & source_sequence, read2
 			}
 	}
 }
-
-// int main(){
-
-// 	// Building sequences
-// 	StringSet<DnaString> sequences;
-// 	appendValue(sequences, "ATCGATA");
-// 	appendValue(sequences, "AGCGATG");
-	
-// 	// Indexing
-// 	index_t index(sequences);
-
-// 	// Query
-// 	DnaString source = "ACTAGCCGTATCGACTGACTGATCGATCGTCA";
-	
-
-// 	// Searching
-// 	read2pos_map_t occurences;
-// 	find_kmers(index, source , occurences, 4, 1, 1.25);
-
-// 	// printing results
-// 	for(auto read_pos: occurences){
-// 		std::cout << "In read " << read_pos.first << "\n";
-
-// 		for(auto pos: read_pos.second){
-// 			std::cout << pos.first << ", " << pos.second << "\n";
-// 		}
-// 	}
-
-// 	return(0);
-// }
