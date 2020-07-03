@@ -15,21 +15,21 @@ float adjust_threshold(float c_old, uint8_t k_old, uint8_t k_new ){
 // Export args to outfile
 void ef_params::export_params(std::ofstream & output_file){
 
-    output_file << "file:" << fasta_file;
-    output_file << " nb_thread:" << nb_thread;
-    output_file << " k:" << k;
-    output_file << " nk:" << nk;
-    output_file << " kmer_skipped:" << ks;
-    output_file << " adusted_lc:" << lc;
-    output_file << " rev_comp:" << rc;
-    output_file << " sampling:" << sampling;
-    output_file << " LIS_mode:" << lis_mode;
+    output_file << "file: " << fasta_file;
+    output_file << " nb_thread: " << nb_thread;
+    output_file << " k: " << k;
+    output_file << " nk: " << nk;
+    output_file << " kmer_skipped: " << ks;
+    output_file << " adusted_lc: " << lc;
+    output_file << " rev_comp: " << rc;
+    output_file << " sampling: " << sampling;
+    output_file << " LIS_mode: " << lis_mode;
     output_file <<std::endl;
     output_file <<  "Program version: " << VERSION;
-    output_file << " kmer_min_prop:" << kp;
-    output_file << " chimera_threshold" << ct;
-    output_file << " index:" << index_file  <<std::endl;
-    output_file <<  "output:" << output << std::endl;
+    output_file << " kmer_min_prop: " << kp;
+    output_file << " chimera_threshold: " << ct;
+    output_file << " index: " << index_file  <<std::endl;
+    output_file <<  "output: " << output << std::endl;
 }
 
 
