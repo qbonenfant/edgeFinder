@@ -308,7 +308,7 @@ float is_chimera(read2pos_map_t & mapping, unsigned read_len){
         int current_seed_nb = 1;
         // for each seed position, store the AB diff
         for(read_pos_pair_t pos_pair: read_seeds.second){
-            float AB_score = abs((2 * current_seed_nb) - r_nb_seed ) / r_nb_seed;
+            float AB_score = std::abs((2 * current_seed_nb) - r_nb_seed ) / r_nb_seed;
             AB_map[pos_pair.first][read_seeds.first] = AB_score; 
             current_seed_nb ++;
         }
@@ -319,7 +319,7 @@ float is_chimera(read2pos_map_t & mapping, unsigned read_len){
     for(auto s_pos: AB_map){
         
         // expected AB difference at this seed position for the source read
-        float exp = std::abs((2 * s_pos.first) - read_len) / read_len;
+        float exp = std::abs((float)((2 * s_pos.first) - read_len) / read_len);
 
         // current score at a position is the sum of the diff between AB score and exp
         // normalized by the number of read mapped
