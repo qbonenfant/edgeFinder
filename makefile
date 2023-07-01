@@ -18,7 +18,7 @@ CXXFLAGS    ?= -Wall -Wextra -pedantic -mtune=native
 FLAGS        = -std=c++14
 
 # Different debug/optimisation levels for debug/release builds.
-DEBUGFLAGS   = -DSEQAN_ENABLE_DEBUG=1 -g
+DEBUGFLAGS   = -DSEQAN_ENABLE_DEBUG=1 -g -DEF_DEBUG
 RELEASEFLAGS = -O3 -DNDEBUG -w
 
 TARGET       = ./edgeFinder
