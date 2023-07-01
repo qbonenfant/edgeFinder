@@ -2,8 +2,8 @@
 
 import sys
 from collections import defaultdict as dd
-from math import sqrt
-from functools import reduce
+# from math import sqrt
+
 
 import matplotlib.pyplot as plt
 
@@ -33,8 +33,8 @@ def get_stdev(elem_list):
     return(res / len(elem_list))
 
 
-def cover(l, coverage):
-    return(len(coverage) / float(l))
+def cover(rl, coverage):
+    return(len(coverage) / float(rl))
 
 
 def check_sum(it):
@@ -111,6 +111,7 @@ def AB_exp_diff(seed_dict, r_len):
     return(score)
 
 
+
 def lr_local_prop(seed_dict, read, r_len):
     reads = list(seed_dict.keys())
 
@@ -124,8 +125,6 @@ def lr_local_prop(seed_dict, read, r_len):
     # Using seeds as pivot.
     for s in sorted(list(seeds))[1:-1]:
 
-        exp = abs(s - (r_len - s)) / float(r_len)
-
         # Seed # on the left
         A_loc = len(list(el for el in seed_dict[read] if el <= s))
         A_tot = len(list(el for el in seeds if el <= s))
@@ -133,7 +132,7 @@ def lr_local_prop(seed_dict, read, r_len):
         B_loc = len(list(el for el in seed_dict[read] if el > s))
         B_tot = len(list(el for el in seeds if el > s))
 
-        score[s] = abs((float(A_loc) / A_tot - float(B_loc) / B_tot) )
+        score[s] = abs((float(A_loc) / A_tot - float(B_loc) / B_tot))
         # score[s] = A_loc / float(A_tot)
 
     return(score)
@@ -204,9 +203,7 @@ def plot_chimera(read_list, edge_data):
     nb_chimera = 0
     nb_normal = 0
     for read in read_list:
-        if(("chimera" in read and nb_chimera < 5) or
-          ("chimera" not in read and nb_normal < 5)) and\
-            len(edge_data[read]) == 2:
+        if(("chimera" in read and nb_chimera < 5) or ("chimera" not in read and nb_normal < 5)) and len(edge_data[read]) == 2:
 
             # short_read_name = read.split("_")[0]
             short_read_name="chimeric" if "chimera" in read else "normal"
@@ -275,6 +272,29 @@ def plot_chimera(read_list, edge_data):
     plt.show()
 
 
+def plot_one(read, edge_data):
+
+    fig, ax = plt.subplots()
+    plt.subplots_adjust(wspace=.3, hspace=.5, left=.05, right=.95)
+
+    # Computing data dict
+    #######################################################
+    # AB-EXP delta squared
+    res = AB_exp_diff(edge_data[read], read_length[read])
+    x, y = zip(*sorted([(k, v) for k, v in res.items()]))
+    ax.scatter(
+        x, y, color="b", marker="+", label=read)
+    ax.set(xlabel="position", ylabel=r"$\sum(\delta(A,B)²,exp²)/N$")
+
+    #######################################################
+
+    ax.legend(loc='lower left', bbox_to_anchor=(
+        0.0, 1.01), borderaxespad=0, frameon=False)
+    plt.show()
+
+
+
+
 def parse_edge(edge_file_name):
     edge_data=dd(dict)
     with open(edge_file_name) as edge_file:
@@ -333,47 +353,49 @@ if(len(sys.argv) > 2):
 
 # else, using all reads as input
 if(len(read_list) == 0):
-    read_list=list(edge_data.keys())
+    read_list = list(edge_data.keys())
+
+plot_one("seq1", edge_data)
 ##############################################################################
 # Data processing
 
 # Testing metric
-TP, TN, FP, FN=0, 0, 0, 0
+# TP, TN, FP, FN=0, 0, 0, 0
 
-for read in read_list:
+# for read in read_list:
 
-    res=None
-    mapped_reads=list(edge_data[read].keys())
+#     res=None
+#     mapped_reads=list(edge_data[read].keys())
 
-    met = 0
-    if(len(mapped_reads) > 1):
-    # if(1):
-        res=AB_exp_diff(edge_data[read], read_length[read])
-        key, val=zip(*sorted([(k, v) for k, v in res.items()]))
-        met = max(val)
-    elif(len(mapped_reads) == 2):
-        selected_r=mapped_reads[0]
-        res=lr_local_prop(edge_data[read], selected_r, read_length[read])
-        key, val=zip(*sorted([(k, v) for k, v in res.items()]))
-        met = max(val)
+#     met = 0
+#     if(len(mapped_reads) > 1):
+#     # if(1):
+#         res=AB_exp_diff(edge_data[read], read_length[read])
+#         key, val=zip(*sorted([(k, v) for k, v in res.items()]))
+#         met = max(val)
+#     elif(len(mapped_reads) == 2):
+#         selected_r=mapped_reads[0]
+#         res=lr_local_prop(edge_data[read], selected_r, read_length[read])
+#         key, val=zip(*sorted([(k, v) for k, v in res.items()]))
+#         met = max(val)
 
 
-    if(met > 0.90):
-        if("chimera" in read):
-            TP += 1
-        else:
-            FP += 1
-    else:
-        if("chimera" not in read):
-            TN += 1
-        else:
-            FN += 1
+#     if(met > 0.90):
+#         if("chimera" in read):
+#             TP += 1
+#         else:
+#             FP += 1
+#     else:
+#         if("chimera" not in read):
+#             TN += 1
+#         else:
+#             FN += 1
 
-print("TP", "TN", "FP", "FN")
-print(TP, TN, FP, FN)
-print("Rand index:")
-val=TP + TN
-tot=TP + FN + TN + FP
-print(round(float(val / tot), 2))
+# print("TP", "TN", "FP", "FN")
+# print(TP, TN, FP, FN)
+# print("Rand index:")
+# val=TP + TN
+# tot=TP + FN + TN + FP
+# print(round(float(val / tot), 2))
 
 # plot_chimera(read_list, edge_data)
